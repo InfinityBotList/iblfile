@@ -68,6 +68,19 @@ func New() *File {
 	}
 }
 
+// Adds a section to a file with json file format
+func (f *File) WriteJsonSection(i any, name string) error {
+	buf := bytes.NewBuffer([]byte{})
+
+	err := json.NewEncoder(buf).Encode(i)
+
+	if err != nil {
+		return err
+	}
+
+	return f.WriteSection(buf, name)
+}
+
 // Adds a section to a file
 func (f *File) WriteSection(buf *bytes.Buffer, name string) error {
 	err := f.tarWriter.WriteHeader(&tar.Header{
