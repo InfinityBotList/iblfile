@@ -42,6 +42,11 @@ type EncryptionData struct {
 
 	// Encryption nonce
 	Nonce string `json:"n"`
+
+	// Whether or not symmetric encryption is being used
+	//
+	// If this option is set, then a `privKey` section MUST be present (e.g. using an AutoEncrypted file)
+	Symmetric bool `json:"s"`
 }
 
 type Meta struct {
