@@ -116,5 +116,6 @@ func NewAutoEncryptedFile(encKey string) (*AutoEncryptedFile, error) {
 		PrivateKey: priv,
 		PublicKey:  pub,
 		Symmetric:  encKey != "",
+		EncDataMap: make(map[string]*EncryptionData),
 	}, nil
 }
