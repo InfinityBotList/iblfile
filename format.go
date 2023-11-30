@@ -20,6 +20,19 @@ import (
 	"github.com/infinitybotlist/eureka/crypto"
 )
 
+// Helper function to convert any type to a bytes buffer with json format
+func ToJson(i any) (*bytes.Buffer, error) {
+	buf := bytes.NewBuffer([]byte{})
+
+	err := json.NewEncoder(buf).Encode(i)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return buf, nil
+}
+
 type EncryptionData struct {
 	// Public key to encrypt data with
 	PEM []byte `json:"p"`
