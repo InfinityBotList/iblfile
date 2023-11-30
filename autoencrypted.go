@@ -38,6 +38,10 @@ func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 
 // Adds a section to a file
 func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
+	if name == "meta" {
+		return f.f.WriteSection(buf, name)
+	}
+
 	encData, encKeyMap, err := EncryptSections(DataEncrypt{
 		Section: name,
 		Data: func() (*bytes.Buffer, error) {
