@@ -23,6 +23,11 @@ type AutoEncryptedFile struct {
 	EncDataMap map[string]*EncryptionData
 }
 
+// Returns the size of the file
+func (f *AutoEncryptedFile) Size() int {
+	return f.f.Size()
+}
+
 // Adds a section to a file with json file format
 func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 	buf := bytes.NewBuffer([]byte{})

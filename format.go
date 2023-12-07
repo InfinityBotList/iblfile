@@ -86,6 +86,11 @@ func New() *File {
 	}
 }
 
+// Returns the size of the file
+func (f *File) Size() int {
+	return f.buf.Len()
+}
+
 // Adds a section to a file with json file format
 func (f *File) WriteJsonSection(i any, name string) error {
 	buf := bytes.NewBuffer([]byte{})
