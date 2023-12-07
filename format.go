@@ -3,7 +3,6 @@ package iblfile
 import (
 	"archive/tar"
 	"bytes"
-	"compress/lzw"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -129,16 +128,8 @@ func (f *File) WriteOutput(w io.Writer) error {
 	// Close tar file
 	f.tarWriter.Close()
 
-	// Compress
-	wt := lzw.NewWriter(w, lzw.LSB, 8)
-
-	_, err := io.Copy(wt, f.buf)
-
-	if err != nil {
-		return err
-	}
-
-	err = wt.Close()
+	// Save tar file to w
+	_, err := io.Copy(w, f.buf)
 
 	if err != nil {
 		return err
@@ -184,21 +175,8 @@ func readTarFile(tarBuf io.Reader) map[string]*bytes.Buffer {
 }
 
 func RawDataParse(data io.Reader) (map[string]*bytes.Buffer, error) {
-	tarBuf := bytes.NewBuffer([]byte{})
-	r := lzw.NewReader(data, lzw.LSB, 8)
-
-	_, err := io.Copy(tarBuf, r)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to decompress file: %w", err)
-	}
-
 	// Get size of decompressed file
-	tarSize := tarBuf.Len()
-
-	fmt.Println("Decompressed size:", tarSize, "bytes")
-
-	files := readTarFile(tarBuf)
+	files := readTarFile(data)
 
 	if len(files) == 0 {
 		return nil, fmt.Errorf("failed to read tar file")

@@ -1,6 +1,6 @@
 package iblfile
 
-const Protocol = "frostpaw-rev5-e1" // The exact protocol version to use
+const Protocol = "frostpaw-rev6" // The exact protocol version to use
 
 // The number of keys to encrypt the data with
 //
