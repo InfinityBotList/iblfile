@@ -219,6 +219,7 @@ func NewAutoEncryptedFile(encKey string, hashMethod HashMethod) (*AutoEncryptedF
 		PublicKey:      pub,
 		Symmetric:      encKey != "",
 		EncDataMap:     make(map[string]*EncryptionData),
+		dataMap:        make(map[string]*bytes.Buffer),
 	}, nil
 }
 
