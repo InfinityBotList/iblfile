@@ -41,11 +41,6 @@ type EncryptionData struct {
 
 	// Encryption nonce
 	Nonce string `json:"n"`
-
-	// Whether or not symmetric encryption is being used
-	//
-	// If this option is set, then a `privKey` section MUST be present (e.g. using an AutoEncrypted file)
-	Symmetric bool `json:"s"`
 }
 
 type Meta struct {
@@ -138,7 +133,7 @@ func (f *File) WriteOutput(w io.Writer) error {
 	return nil
 }
 
-func readTarFile(tarBuf io.Reader) map[string]*bytes.Buffer {
+func readTarFile(tarBuf io.Reader) (map[string]*bytes.Buffer, error) {
 	// Extract tar file to map of buffers
 	tarReader := tar.NewReader(tarBuf)
 
@@ -153,8 +148,7 @@ func readTarFile(tarBuf io.Reader) map[string]*bytes.Buffer {
 		}
 
 		if err != nil {
-			fmt.Println("Failed to read tar file:", err)
-			return nil
+			return nil, fmt.Errorf("failed to read tar file: %w", err)
 		}
 
 		// Read file into buffer
@@ -163,29 +157,32 @@ func readTarFile(tarBuf io.Reader) map[string]*bytes.Buffer {
 		_, err = io.Copy(buf, tarReader)
 
 		if err != nil {
-			fmt.Println("Failed to read tar file:", err)
-			return nil
+			return nil, fmt.Errorf("failed to read tar file: %w", err)
 		}
 
 		// Save file to map
 		files[header.Name] = buf
 	}
 
-	return files
+	return files, nil
 }
 
 func RawDataParse(data io.Reader) (map[string]*bytes.Buffer, error) {
 	// Get size of decompressed file
-	files := readTarFile(data)
+	files, err := readTarFile(data)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tar file: %w", err)
+	}
 
 	if len(files) == 0 {
 		return nil, fmt.Errorf("failed to read tar file")
 	}
 
-	fmt.Println("Keys present:", MapKeys(files))
 	return files, nil
 }
 
+// Parses a file to a map of buffers and the metadata
 func ParseData(data io.Reader) (map[string]*bytes.Buffer, *Meta, error) {
 	files, err := RawDataParse(data)
 
@@ -199,20 +196,12 @@ func ParseData(data io.Reader) (map[string]*bytes.Buffer, *Meta, error) {
 		err = json.NewDecoder(meta).Decode(&metadata)
 
 		if err != nil {
-			fmt.Println("Invalid meta, unmarshal fail:", err)
 			return nil, nil, fmt.Errorf("failed to unmarshal meta: %w", err)
 		}
 
 		if metadata.Protocol != Protocol {
 			return nil, nil, fmt.Errorf("invalid protocol: %s", metadata.Protocol)
 		}
-
-		fmt.Println("")
-		fmt.Println("== Metadata ==")
-		fmt.Println("Protocol:", metadata.Protocol)
-		fmt.Println("File Version:", metadata.FormatVersion)
-		fmt.Println("Type:", metadata.Type)
-		fmt.Println("Created At:", metadata.CreatedAt)
 
 		f, err := GetFormat(metadata.Type)
 
@@ -223,8 +212,6 @@ func ParseData(data io.Reader) (map[string]*bytes.Buffer, *Meta, error) {
 		if metadata.FormatVersion != f.Version {
 			return nil, nil, fmt.Errorf("this %s uses format version %s, but this version of the tool only supports version %s", metadata.Type, metadata.FormatVersion, f.Version)
 		}
-
-		fmt.Println("")
 
 		return files, &metadata, nil
 	} else {
@@ -268,7 +255,6 @@ func EncryptSections(de ...DataEncrypt) (map[string]*bytes.Buffer, map[string]*E
 		pubInterface, parseErr := x509.ParsePKIXPublicKey(pem.Bytes)
 
 		if parseErr != nil {
-			fmt.Println("Failed to parse public key:", parseErr)
 			return nil, nil, fmt.Errorf("failed to parse public key: %s", parseErr)
 		}
 
