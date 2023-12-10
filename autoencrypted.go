@@ -45,6 +45,9 @@ type AutoEncryptedFile struct {
 
 	// Source of the file
 	Source AEDataSource
+
+	// Cached metadata
+	cachedMeta *Meta
 }
 
 // Returns the total size of the file
@@ -65,6 +68,7 @@ func (f *AutoEncryptedFile) Size() int {
 	return f.UnderlyingFile.Size()
 }
 
+// Returns a section based on name
 func (f *AutoEncryptedFile) Get(name string) (*AEDData, error) {
 	return f.Source.Get(name)
 }
@@ -85,11 +89,13 @@ func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 // Adds a section to a file
 func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
 	if name == "meta" {
+		f.cachedMeta = nil // Delete the cached meta
 		return f.Source.Write(name, buf, true)
 	}
 	return f.Source.Write(name, buf, false)
 }
 
+// Writes the output to writer w
 func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
 	// First save source
 	sections := f.Source.Sections()
@@ -109,6 +115,34 @@ func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
 	}
 
 	return f.UnderlyingFile.WriteOutput(w)
+}
+
+// Clears the internal cache
+func (f *AutoEncryptedFile) ClearInternalCache() {
+	f.cachedMeta = nil
+}
+
+// Returns the metadata of the file
+func (f *AutoEncryptedFile) Meta() *Meta {
+	if f.cachedMeta != nil {
+		return f.cachedMeta
+	}
+
+	m := &Meta{}
+
+	sections := f.Source.Sections()
+
+	if v, ok := sections["meta"]; ok {
+		err := json.NewDecoder(v.Bytes).Decode(m)
+
+		if err != nil {
+			return nil
+		}
+	}
+
+	f.cachedMeta = m
+
+	return m
 }
 
 // Creates a new 'auto encypted' key
@@ -159,5 +193,6 @@ func OpenAutoEncryptedFile(r io.Reader, src AEDataSource) (*AutoEncryptedFile, e
 	return &AutoEncryptedFile{
 		UnderlyingFile: nil,
 		Source:         loadedSrc,
+		cachedMeta:     meta,
 	}, nil
 }
