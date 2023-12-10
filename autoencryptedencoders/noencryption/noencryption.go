@@ -7,10 +7,6 @@ import (
 	"github.com/infinitybotlist/iblfile"
 )
 
-func init() {
-	iblfile.AddFormatToAESourceRegistry(NoEncryptionSource{})
-}
-
 // No encryption source
 //
 // This is the simplest source type

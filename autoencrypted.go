@@ -40,13 +40,6 @@ type AEDataSource interface {
 	Load(sections map[string]*bytes.Buffer, meta *Meta) (AEDataSource, error)
 }
 
-// All formats should register themselves here
-var Registry = map[string]AEDataSource{}
-
-func AddFormatToAESourceRegistry(src AEDataSource) {
-	Registry[src.ID()] = src
-}
-
 type AutoEncryptedFile struct {
 	UnderlyingFile *File
 
@@ -134,7 +127,7 @@ func NewAutoEncryptedFile(src AEDataSource) (*AutoEncryptedFile, error) {
 	}, nil
 }
 
-func OpenAutoEncryptedFile(r io.Reader) (*AutoEncryptedFile, error) {
+func OpenAutoEncryptedFile(r io.Reader, src AEDataSource) (*AutoEncryptedFile, error) {
 	sections, meta, err := ParseData(r)
 
 	if err != nil {
@@ -149,10 +142,12 @@ func OpenAutoEncryptedFile(r io.Reader) (*AutoEncryptedFile, error) {
 
 	srcType := st.Bytes()
 
-	src, ok := Registry[string(srcType)]
+	if srcType == nil {
+		return nil, fmt.Errorf("no source type found")
+	}
 
-	if !ok {
-		return nil, fmt.Errorf("no source found for type %s", srcType)
+	if string(srcType) != src.ID() {
+		return nil, fmt.Errorf("source type mismatch: %s != %s", string(srcType), src.ID())
 	}
 
 	loadedSrc, err := src.Load(sections, meta)

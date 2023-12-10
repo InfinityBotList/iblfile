@@ -17,10 +17,6 @@ import (
 	"github.com/infinitybotlist/iblfile"
 )
 
-func init() {
-	iblfile.AddFormatToAESourceRegistry(PemEncryptedSource{})
-}
-
 type HashMethod int
 
 const (

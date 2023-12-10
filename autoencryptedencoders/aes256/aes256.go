@@ -21,10 +21,6 @@ const (
 	HashMethodSha256 HashMethod = iota
 )
 
-func init() {
-	iblfile.AddFormatToAESourceRegistry(AES256Source{})
-}
-
 // AES-256-GCM source
 //
 // All files are transparently encrypted and decrypted using aes-256-gcm
