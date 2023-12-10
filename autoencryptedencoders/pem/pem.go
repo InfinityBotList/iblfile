@@ -1,4 +1,4 @@
-package iblfile
+package pem
 
 import (
 	"bytes"
@@ -13,7 +13,12 @@ import (
 	"strconv"
 
 	pemutil "github.com/infinitybotlist/eureka/pem"
+	"github.com/infinitybotlist/iblfile"
 )
+
+func init() {
+	iblfile.AddFormatToAESourceRegistry(PemEncryptedSource{})
+}
 
 type HashMethod int
 
@@ -21,94 +26,85 @@ const (
 	HashMethodSha256 HashMethod = iota
 )
 
-const DefaultHashMethod = HashMethodSha256
+type PemEncryptedSource struct {
+	// Underlying file
+	UnderlyingFile *iblfile.File
 
-type AutoPemEncryptedFile struct {
-	UnderlyingFile *File
+	// Hash method
+	HashMethod HashMethod
 
+	// Public key to encrypt data with
+	PublicKey []byte
+
+	// Private key to decrypt data with
 	PrivateKey []byte
-	PublicKey  []byte
-	Symmetric  bool
 
-	// When creating meta, use this map as the encryption data map
-	EncDataMap map[string]*PemEncryptionData
+	// Encryption key if any
+	EncKey string
 
-	// Data map
-	dataMap map[string]*bytes.Buffer
+	// Encryption data
+	EncDataMap map[string]*iblfile.PemEncryptionData
+
+	// Data store
+	DataMap map[string]*bytes.Buffer
 }
 
-// Returns the size of the file
-func (f *AutoPemEncryptedFile) Size() int {
-	if f.UnderlyingFile == nil {
-		var size int
-
-		for _, v := range f.dataMap {
-			if v != nil {
-				size += v.Len()
-			}
-		}
-
-		return size
-	}
-	return f.UnderlyingFile.Size()
+func (p PemEncryptedSource) ID() string {
+	return "pem"
 }
 
-func (f *AutoPemEncryptedFile) GetSection(name string) (*bytes.Buffer, error) {
-	if len(f.PrivateKey) == 0 || name == "meta" {
+func (p PemEncryptedSource) Sections() map[string]*bytes.Buffer {
+	return p.DataMap
+}
+
+func (p PemEncryptedSource) Get(name string) (*bytes.Buffer, error) {
+	if name == "meta" {
 		// Guaranteed to not be encrypted
-		meta, ok := f.dataMap["meta"]
+		d, ok := p.DataMap[name]
 
 		if !ok {
-			return nil, fmt.Errorf("no meta data found")
+			return nil, fmt.Errorf("no data found for section %s", name)
 		}
-		return meta, nil
+
+		return d, nil
 	}
 
-	encData, ok := f.dataMap[name]
+	encData, ok := p.DataMap[name]
 
 	if !ok {
 		return nil, fmt.Errorf("no data found for section %s", name)
 	}
 
-	enc, ok := f.EncDataMap[name]
+	enc, ok := p.EncDataMap[name]
 
 	if !ok {
 		return nil, fmt.Errorf("no encryption data found for section %s", name)
 	}
 
-	decryptedBuf, err := DecryptData(encData, enc, f.PrivateKey)
+	decryptedBuf, err := iblfile.DecryptData(encData, enc, p.PrivateKey)
 
 	if err != nil {
 		return nil, err
 	}
+
 	return decryptedBuf, nil
 }
 
-// Adds a section to a file with json file format
-func (f *AutoPemEncryptedFile) WriteJsonSection(i any, name string) error {
-	buf := bytes.NewBuffer([]byte{})
-
-	err := json.NewEncoder(buf).Encode(i)
-
-	if err != nil {
-		return err
+func (p PemEncryptedSource) Write(name string, buf *bytes.Buffer) error {
+	if p.UnderlyingFile == nil {
+		return fmt.Errorf("no underlying file")
 	}
 
-	return f.WriteSection(buf, name)
-}
-
-// Adds a section to a file
-func (f *AutoPemEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
-	if len(f.PrivateKey) == 0 || name == "meta" {
-		return f.UnderlyingFile.WriteSection(buf, name)
+	if len(p.PrivateKey) == 0 || name == "meta" {
+		return p.UnderlyingFile.WriteSection(buf, name)
 	}
 
-	encData, encKeyMap, err := EncryptSections(DataEncrypt{
+	encData, encKeyMap, err := iblfile.EncryptSections(iblfile.DataEncrypt{
 		Section: name,
 		Data: func() (*bytes.Buffer, error) {
 			return buf, nil
 		},
-		Pubkey: f.PublicKey,
+		Pubkey: p.PublicKey,
 	})
 
 	if err != nil {
@@ -117,8 +113,8 @@ func (f *AutoPemEncryptedFile) WriteSection(buf *bytes.Buffer, name string) erro
 
 	// Write the encrypted data
 	for k, v := range encData {
-		f.dataMap[k] = v // Save the encrypted data to the data map
-		err = f.UnderlyingFile.WriteSection(v, k)
+		p.DataMap[k] = v // Save the encrypted data to the data map
+		err = p.UnderlyingFile.WriteSection(v, k)
 
 		if err != nil {
 			return err
@@ -127,51 +123,55 @@ func (f *AutoPemEncryptedFile) WriteSection(buf *bytes.Buffer, name string) erro
 
 	// Write the encryption data
 	for k, v := range encKeyMap {
-		f.EncDataMap[k] = v
+		p.EncDataMap[k] = v
 	}
 
 	return nil
 }
 
-func (f *AutoPemEncryptedFile) WriteOutput(w io.Writer) error {
-	return f.UnderlyingFile.WriteOutput(w)
+func (p PemEncryptedSource) WriteOutput() error {
+	// Save encdatamap
+	if p.UnderlyingFile == nil {
+		return fmt.Errorf("no underlying file")
+	}
+
+	return p.UnderlyingFile.WriteJsonSection(p.EncDataMap, "sec/encData")
 }
 
-// Creates a new 'auto encypted' key
-func NewAutoPemEncryptedFile(encKey string, hashMethod HashMethod) (*AutoPemEncryptedFile, error) {
-	f := New()
-
+func (p PemEncryptedSource) New(u *iblfile.File) (iblfile.AEDataSource, error) {
 	var priv []byte
 	var pub []byte
 	var err error
 
-	if encKey == "" {
-	} else {
+	if len(p.PrivateKey) > 0 && len(p.PublicKey) == 0 || len(p.PrivateKey) == 0 && len(p.PublicKey) > 0 {
+		return nil, fmt.Errorf("invalid private/public key combination")
+	}
+
+	if len(p.PrivateKey) == 0 || len(p.PublicKey) == 0 {
 		priv, pub, err = pemutil.MakePem()
 
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		priv = p.PrivateKey
+		pub = p.PublicKey
+	}
 
-		err = f.WriteSection(bytes.NewBuffer(pub), "sec/pubKey")
+	err = u.WriteSection(bytes.NewBuffer(pub), "sec/pubKey")
 
-		if err != nil {
-			return nil, err
-		}
+	if err != nil {
+		return nil, err
+	}
 
-		err = f.WriteSection(bytes.NewBuffer(priv), "sec/privKey")
-
-		if err != nil {
-			return nil, err
-		}
-
+	if p.EncKey != "" {
 		var hashedKey []byte
 
 		// Hash the encKey with sha256 for aes-256-gcm
-		switch hashMethod {
+		switch p.HashMethod {
 		case HashMethodSha256:
 			encKeyHash := sha256.New()
-			encKeyHash.Write([]byte(encKey))
+			encKeyHash.Write([]byte(p.EncKey))
 			hashedKey = encKeyHash.Sum(nil)
 		default:
 			return nil, fmt.Errorf("invalid hash method")
@@ -197,43 +197,60 @@ func NewAutoPemEncryptedFile(encKey string, hashMethod HashMethod) (*AutoPemEncr
 
 		encPriv := gcm.Seal(aesNonce, aesNonce, priv, nil)
 
-		err = f.WriteSection(bytes.NewBuffer(encPriv), "sec/privKey")
+		err = u.WriteSection(bytes.NewBuffer(encPriv), "sec/privKey")
 
 		if err != nil {
 			return nil, err
 		}
 
 		// Also write the encKey hashing method
-		f.WriteSection(bytes.NewBuffer([]byte(fmt.Sprintf("%d", hashMethod))), "sec/encKeyHashMethod")
+		err = u.WriteSection(bytes.NewBuffer([]byte(fmt.Sprintf("%d", p.HashMethod))), "sec/encKeyHashMethod")
 
 		if err != nil {
 			return nil, err
 		}
 
 		// Lastly write an empty file to signify that this is an encrypted file
-		err = f.WriteSection(bytes.NewBuffer([]byte{}), "sec/encrypted")
+		err = u.WriteSection(bytes.NewBuffer([]byte{}), "sec/encrypted")
+
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		err = u.WriteSection(bytes.NewBuffer(priv), "sec/privKey")
 
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	return &AutoPemEncryptedFile{
-		UnderlyingFile: f,
-		PrivateKey:     priv,
+	return PemEncryptedSource{
+		UnderlyingFile: u,
 		PublicKey:      pub,
-		Symmetric:      encKey != "",
-		EncDataMap:     make(map[string]*PemEncryptionData),
-		dataMap:        make(map[string]*bytes.Buffer),
+		PrivateKey:     priv,
+		HashMethod:     p.HashMethod,
+		EncKey:         p.EncKey,
+		EncDataMap:     make(map[string]*iblfile.PemEncryptionData),
+		DataMap:        make(map[string]*bytes.Buffer),
 	}, nil
 }
 
-func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile, error) {
-	sections, meta, err := ParseData(r)
+func (p PemEncryptedSource) Load(sections map[string]*bytes.Buffer, meta *iblfile.Meta) (iblfile.AEDataSource, error) {
+	pedBuf, ok := sections["sec/encData"]
+
+	if !ok {
+		return nil, fmt.Errorf("no encryption data found")
+	}
+
+	var ped map[string]*iblfile.PemEncryptionData
+
+	err := json.NewDecoder(pedBuf).Decode(&ped)
 
 	if err != nil {
 		return nil, err
 	}
+
+	meta.PemEncryptionData = ped
 
 	if len(meta.PemEncryptionData) == 0 {
 		return nil, fmt.Errorf("no encryption data found")
@@ -248,18 +265,14 @@ func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile
 	privKey, ok := sections["sec/privKey"]
 
 	if !ok {
-		// Then its simple, just return
-		return &AutoPemEncryptedFile{
-			Symmetric:  encKey != "",
-			EncDataMap: meta.PemEncryptionData,
-			dataMap:    sections,
-		}, nil
+		return nil, fmt.Errorf("no private key found")
 	}
 
 	var privKeyPem []byte
 
 	_, ok = sections["sec/encrypted"]
 
+	var hashMethod int
 	if !ok {
 		// File is not encrypted, try to parse the private key
 		pkp := privKey.Bytes()
@@ -279,13 +292,13 @@ func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile
 	} else {
 		pkp := privKey.Bytes()
 
-		hashMethodStr, ok := sections["sec/hashMethod"]
+		hashMethodStr, ok := sections["sec/encKeyhashMethod"]
 
 		if !ok {
 			return nil, fmt.Errorf("no hash method found")
 		}
 
-		hashMethod, err := strconv.Atoi(hashMethodStr.String())
+		hashMethod, err = strconv.Atoi(hashMethodStr.String())
 
 		if err != nil {
 			return nil, err
@@ -296,7 +309,7 @@ func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile
 		case int(HashMethodSha256):
 			// Hash the encKey with sha256 for aes-256-gcm
 			encKeyHash := sha256.New()
-			encKeyHash.Write([]byte(encKey))
+			encKeyHash.Write([]byte(p.EncKey))
 			hashedKey = encKeyHash.Sum(nil)
 		default:
 			return nil, fmt.Errorf("invalid hash method")
@@ -332,11 +345,12 @@ func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile
 		privKeyPem = decPriv
 	}
 
-	return &AutoPemEncryptedFile{
+	return PemEncryptedSource{
 		PrivateKey: privKeyPem,
+		HashMethod: HashMethod(hashMethod),
 		PublicKey:  pubKey.Bytes(),
-		Symmetric:  encKey != "",
 		EncDataMap: meta.PemEncryptionData,
-		dataMap:    sections,
+		EncKey:     p.EncKey,
+		DataMap:    sections,
 	}, nil
 }
