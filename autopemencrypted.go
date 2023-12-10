@@ -23,7 +23,7 @@ const (
 
 const DefaultHashMethod = HashMethodSha256
 
-type AutoEncryptedFile struct {
+type AutoPemEncryptedFile struct {
 	UnderlyingFile *File
 
 	PrivateKey []byte
@@ -31,14 +31,14 @@ type AutoEncryptedFile struct {
 	Symmetric  bool
 
 	// When creating meta, use this map as the encryption data map
-	EncDataMap map[string]*EncryptionData
+	EncDataMap map[string]*PemEncryptionData
 
 	// Data map
 	dataMap map[string]*bytes.Buffer
 }
 
 // Returns the size of the file
-func (f *AutoEncryptedFile) Size() int {
+func (f *AutoPemEncryptedFile) Size() int {
 	if f.UnderlyingFile == nil {
 		var size int
 
@@ -53,8 +53,8 @@ func (f *AutoEncryptedFile) Size() int {
 	return f.UnderlyingFile.Size()
 }
 
-func (f *AutoEncryptedFile) GetSection(name string) (*bytes.Buffer, error) {
-	if name == "meta" {
+func (f *AutoPemEncryptedFile) GetSection(name string) (*bytes.Buffer, error) {
+	if len(f.PrivateKey) == 0 || name == "meta" {
 		// Guaranteed to not be encrypted
 		meta, ok := f.dataMap["meta"]
 
@@ -85,7 +85,7 @@ func (f *AutoEncryptedFile) GetSection(name string) (*bytes.Buffer, error) {
 }
 
 // Adds a section to a file with json file format
-func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
+func (f *AutoPemEncryptedFile) WriteJsonSection(i any, name string) error {
 	buf := bytes.NewBuffer([]byte{})
 
 	err := json.NewEncoder(buf).Encode(i)
@@ -98,8 +98,8 @@ func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 }
 
 // Adds a section to a file
-func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
-	if name == "meta" {
+func (f *AutoPemEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
+	if len(f.PrivateKey) == 0 || name == "meta" {
 		return f.UnderlyingFile.WriteSection(buf, name)
 	}
 
@@ -133,33 +133,38 @@ func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
 	return nil
 }
 
-func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
+func (f *AutoPemEncryptedFile) WriteOutput(w io.Writer) error {
 	return f.UnderlyingFile.WriteOutput(w)
 }
 
 // Creates a new 'auto encypted' key
-func NewAutoEncryptedFile(encKey string, hashMethod HashMethod) (*AutoEncryptedFile, error) {
+func NewAutoPemEncryptedFile(encKey string, hashMethod HashMethod) (*AutoPemEncryptedFile, error) {
 	f := New()
 
-	priv, pub, err := pemutil.MakePem()
-
-	if err != nil {
-		return nil, err
-	}
-
-	err = f.WriteSection(bytes.NewBuffer(pub), "sec/pubKey")
-
-	if err != nil {
-		return nil, err
-	}
+	var priv []byte
+	var pub []byte
+	var err error
 
 	if encKey == "" {
+	} else {
+		priv, pub, err = pemutil.MakePem()
+
+		if err != nil {
+			return nil, err
+		}
+
+		err = f.WriteSection(bytes.NewBuffer(pub), "sec/pubKey")
+
+		if err != nil {
+			return nil, err
+		}
+
 		err = f.WriteSection(bytes.NewBuffer(priv), "sec/privKey")
 
 		if err != nil {
 			return nil, err
 		}
-	} else {
+
 		var hashedKey []byte
 
 		// Hash the encKey with sha256 for aes-256-gcm
@@ -213,24 +218,24 @@ func NewAutoEncryptedFile(encKey string, hashMethod HashMethod) (*AutoEncryptedF
 		}
 	}
 
-	return &AutoEncryptedFile{
+	return &AutoPemEncryptedFile{
 		UnderlyingFile: f,
 		PrivateKey:     priv,
 		PublicKey:      pub,
 		Symmetric:      encKey != "",
-		EncDataMap:     make(map[string]*EncryptionData),
+		EncDataMap:     make(map[string]*PemEncryptionData),
 		dataMap:        make(map[string]*bytes.Buffer),
 	}, nil
 }
 
-func OpenAutoEncryptedFile(r io.Reader, encKey string) (*AutoEncryptedFile, error) {
+func OpenAutoPemEncryptedFile(r io.Reader, encKey string) (*AutoPemEncryptedFile, error) {
 	sections, meta, err := ParseData(r)
 
 	if err != nil {
 		return nil, err
 	}
 
-	if len(meta.EncryptionData) == 0 {
+	if len(meta.PemEncryptionData) == 0 {
 		return nil, fmt.Errorf("no encryption data found")
 	}
 
@@ -243,7 +248,12 @@ func OpenAutoEncryptedFile(r io.Reader, encKey string) (*AutoEncryptedFile, erro
 	privKey, ok := sections["sec/privKey"]
 
 	if !ok {
-		return nil, fmt.Errorf("no private key found")
+		// Then its simple, just return
+		return &AutoPemEncryptedFile{
+			Symmetric:  encKey != "",
+			EncDataMap: meta.PemEncryptionData,
+			dataMap:    sections,
+		}, nil
 	}
 
 	var privKeyPem []byte
@@ -322,11 +332,11 @@ func OpenAutoEncryptedFile(r io.Reader, encKey string) (*AutoEncryptedFile, erro
 		privKeyPem = decPriv
 	}
 
-	return &AutoEncryptedFile{
+	return &AutoPemEncryptedFile{
 		PrivateKey: privKeyPem,
 		PublicKey:  pubKey.Bytes(),
 		Symmetric:  encKey != "",
-		EncDataMap: meta.EncryptionData,
+		EncDataMap: meta.PemEncryptionData,
 		dataMap:    sections,
 	}, nil
 }

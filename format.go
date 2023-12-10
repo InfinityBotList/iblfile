@@ -32,7 +32,7 @@ func ToJson(i any) (*bytes.Buffer, error) {
 	return buf, nil
 }
 
-type EncryptionData struct {
+type PemEncryptionData struct {
 	// Public key to encrypt data with
 	PEM []byte `json:"p"`
 
@@ -54,7 +54,7 @@ type Meta struct {
 
 	// Encryption data, if a section is encrypted
 	// This is a map that maps each section to its encryption data
-	EncryptionData map[string]*EncryptionData `json:"e,omitempty"`
+	PemEncryptionData map[string]*PemEncryptionData `json:"e,omitempty"`
 
 	// Type of the file
 	Type string `json:"t"`
@@ -225,9 +225,9 @@ type DataEncrypt struct {
 	Pubkey  []byte
 }
 
-func EncryptSections(de ...DataEncrypt) (map[string]*bytes.Buffer, map[string]*EncryptionData, error) {
+func EncryptSections(de ...DataEncrypt) (map[string]*bytes.Buffer, map[string]*PemEncryptionData, error) {
 	var dataMap = make(map[string]*bytes.Buffer)
-	var encDataMap = make(map[string]*EncryptionData)
+	var encDataMap = make(map[string]*PemEncryptionData)
 	for _, d := range de {
 		if len(d.Pubkey) == 0 {
 			return nil, nil, fmt.Errorf("no public key provided for section %s", d.Section)
@@ -305,7 +305,7 @@ func EncryptSections(de ...DataEncrypt) (map[string]*bytes.Buffer, map[string]*E
 
 		encData := gcm.Seal(aesNonce, aesNonce, dataBuf.Bytes(), nil)
 
-		encDataMap[d.Section] = &EncryptionData{
+		encDataMap[d.Section] = &PemEncryptionData{
 			PEM:   d.Pubkey,
 			Keys:  keys,
 			Nonce: encNonce,
@@ -316,7 +316,7 @@ func EncryptSections(de ...DataEncrypt) (map[string]*bytes.Buffer, map[string]*E
 	return dataMap, encDataMap, nil
 }
 
-func DecryptData(encData *bytes.Buffer, enc *EncryptionData, privkey []byte) (*bytes.Buffer, error) {
+func DecryptData(encData *bytes.Buffer, enc *PemEncryptionData, privkey []byte) (*bytes.Buffer, error) {
 	var decrPass = []byte(enc.Nonce)
 	for _, key := range enc.Keys {
 		hash := sha512.New()
