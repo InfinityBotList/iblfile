@@ -6,8 +6,10 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 
 	"github.com/infinitybotlist/iblfile"
@@ -31,13 +33,16 @@ type AES256Source struct {
 	UnderlyingFile *iblfile.File
 
 	// Data store
-	DataMap map[string]*bytes.Buffer
+	DataMap map[string]*iblfile.AEDData
 
 	// Encryption key
 	EncryptionKey string
 
 	// Hash method
 	HashMethod HashMethod
+
+	// Encrypt all disregarding plaintext
+	ForceEncrypt bool
 
 	// Hashed encryption key
 	hashedKey []byte
@@ -50,20 +55,24 @@ func (p AES256Source) ID() string {
 	return "noencryption"
 }
 
-func (p AES256Source) Sections() map[string]*bytes.Buffer {
+func (p AES256Source) Sections() map[string]*iblfile.AEDData {
 	return p.DataMap
 }
 
-func (p AES256Source) Get(name string) (*bytes.Buffer, error) {
+func (p AES256Source) Get(name string) (*iblfile.AEDData, error) {
 	d, ok := p.DataMap[name]
 
 	if !ok {
 		return nil, fmt.Errorf("no data found for section %s", name)
 	}
 
+	if !d.Enc {
+		return d, nil
+	}
+
 	// Decrypt the data
-	aesNonce := d.Next(p.cipher.NonceSize())
-	ed := d.Bytes()
+	aesNonce := d.Bytes.Next(p.cipher.NonceSize())
+	ed := d.Bytes.Bytes()
 
 	// Decrypt the data
 	db, err := p.cipher.Open(nil, aesNonce, ed, nil)
@@ -72,18 +81,29 @@ func (p AES256Source) Get(name string) (*bytes.Buffer, error) {
 		return nil, fmt.Errorf("failed to decrypt data: %s", err)
 	}
 
-	d = bytes.NewBuffer(db)
+	dV := bytes.NewBuffer(db)
 
-	return d, nil
+	return &iblfile.AEDData{
+		Bytes: dV,
+		Enc:   true,
+	}, nil
 }
 
-func (p AES256Source) Write(name string, buf *bytes.Buffer) error {
+func (p AES256Source) Write(name string, buf *bytes.Buffer, plaintext bool) error {
 	if p.UnderlyingFile == nil {
 		return fmt.Errorf("no underlying file")
 	}
 
 	if p.cipher == nil {
 		return fmt.Errorf("no cipher")
+	}
+
+	if plaintext && !p.ForceEncrypt {
+		p.DataMap[name] = &iblfile.AEDData{
+			Bytes: buf,
+			Enc:   false,
+		}
+		return p.UnderlyingFile.WriteSection(buf, name)
 	}
 
 	// Encrypt the data
@@ -96,12 +116,23 @@ func (p AES256Source) Write(name string, buf *bytes.Buffer) error {
 	buf = bytes.NewBuffer(ed)
 
 	// Write the data
-	p.DataMap[name] = buf
+	p.DataMap[name] = &iblfile.AEDData{
+		Bytes: buf,
+		Enc:   true,
+	}
 	return p.UnderlyingFile.WriteSection(buf, name)
 }
 
 func (p AES256Source) WriteOutput() error {
-	return nil
+	var encSections []string
+
+	for k, v := range p.DataMap {
+		if v.Enc {
+			encSections = append(encSections, k)
+		}
+	}
+
+	return p.UnderlyingFile.WriteJsonSection(encSections, "sec/encSections")
 }
 
 func (p AES256Source) New(u *iblfile.File) (iblfile.AEDataSource, error) {
@@ -139,9 +170,10 @@ func (p AES256Source) New(u *iblfile.File) (iblfile.AEDataSource, error) {
 
 	return AES256Source{
 		UnderlyingFile: u,
-		DataMap:        map[string]*bytes.Buffer{},
+		DataMap:        map[string]*iblfile.AEDData{},
 		EncryptionKey:  p.EncryptionKey,
 		HashMethod:     p.HashMethod,
+		ForceEncrypt:   p.ForceEncrypt,
 		hashedKey:      hashedKey,
 		cipher:         gcm,
 	}, nil
@@ -186,9 +218,42 @@ func (p AES256Source) Load(sections map[string]*bytes.Buffer, meta *iblfile.Meta
 		return nil, err
 	}
 
+	dataMap := make(map[string]*iblfile.AEDData)
+
+	encSections, ok := sections["sec/encSections"]
+
+	if !ok {
+		for k, v := range sections {
+			dataMap[k] = &iblfile.AEDData{
+				Enc:   true, // Assume all data is encrypted
+				Bytes: v,
+			}
+		}
+	} else {
+		var encSecs []string
+
+		err = json.NewDecoder(encSections).Decode(&encSecs)
+
+		if err != nil {
+			return nil, err
+		}
+
+		dataMap := make(map[string]*iblfile.AEDData)
+
+		for k, v := range sections {
+			enc := slices.Contains(encSecs, k)
+
+			dataMap[k] = &iblfile.AEDData{
+				Enc:   enc,
+				Bytes: v,
+			}
+		}
+	}
+
 	return AES256Source{
-		DataMap:       sections,
+		DataMap:       dataMap,
 		EncryptionKey: p.EncryptionKey,
+		ForceEncrypt:  p.ForceEncrypt,
 		HashMethod:    HashMethod(hashMethod),
 		hashedKey:     hashedKey,
 		cipher:        gcm,

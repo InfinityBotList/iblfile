@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 
 	pemutil "github.com/infinitybotlist/eureka/pem"
@@ -46,56 +47,60 @@ type PemEncryptedSource struct {
 	EncDataMap map[string]*iblfile.PemEncryptionData
 
 	// Data store
-	DataMap map[string]*bytes.Buffer
+	DataMap map[string]*iblfile.AEDData
 }
 
 func (p PemEncryptedSource) ID() string {
 	return "pem"
 }
 
-func (p PemEncryptedSource) Sections() map[string]*bytes.Buffer {
+func (p PemEncryptedSource) Sections() map[string]*iblfile.AEDData {
 	return p.DataMap
 }
 
-func (p PemEncryptedSource) Get(name string) (*bytes.Buffer, error) {
-	if name == "meta" {
-		// Guaranteed to not be encrypted
-		d, ok := p.DataMap[name]
-
-		if !ok {
-			return nil, fmt.Errorf("no data found for section %s", name)
-		}
-
-		return d, nil
-	}
-
+func (p PemEncryptedSource) Get(name string) (*iblfile.AEDData, error) {
 	encData, ok := p.DataMap[name]
 
 	if !ok {
 		return nil, fmt.Errorf("no data found for section %s", name)
 	}
 
-	enc, ok := p.EncDataMap[name]
+	if encData.Enc {
+		enc, ok := p.EncDataMap[name]
 
-	if !ok {
-		return nil, fmt.Errorf("no encryption data found for section %s", name)
+		if !ok {
+			return nil, fmt.Errorf("no encryption data found for section %s", name)
+		}
+
+		decryptedBuf, err := iblfile.DecryptData(encData.Bytes, enc, p.PrivateKey)
+
+		if err != nil {
+			return nil, err
+		}
+
+		return &iblfile.AEDData{
+			Enc:   true,
+			Bytes: decryptedBuf,
+		}, nil
+	} else {
+		return encData, nil
 	}
-
-	decryptedBuf, err := iblfile.DecryptData(encData, enc, p.PrivateKey)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return decryptedBuf, nil
 }
 
-func (p PemEncryptedSource) Write(name string, buf *bytes.Buffer) error {
+func (p PemEncryptedSource) Write(name string, buf *bytes.Buffer, plaintext bool) error {
 	if p.UnderlyingFile == nil {
 		return fmt.Errorf("no underlying file")
 	}
 
-	if len(p.PrivateKey) == 0 || name == "meta" {
+	if len(p.PrivateKey) == 0 {
+		return fmt.Errorf("no private key")
+	}
+
+	if plaintext {
+		p.DataMap[name] = &iblfile.AEDData{
+			Enc:   false,
+			Bytes: buf,
+		}
 		return p.UnderlyingFile.WriteSection(buf, name)
 	}
 
@@ -113,7 +118,10 @@ func (p PemEncryptedSource) Write(name string, buf *bytes.Buffer) error {
 
 	// Write the encrypted data
 	for k, v := range encData {
-		p.DataMap[k] = v // Save the encrypted data to the data map
+		p.DataMap[k] = &iblfile.AEDData{
+			Enc:   true,
+			Bytes: v,
+		} // Save the encrypted data to the data map
 		err = p.UnderlyingFile.WriteSection(v, k)
 
 		if err != nil {
@@ -135,7 +143,21 @@ func (p PemEncryptedSource) WriteOutput() error {
 		return fmt.Errorf("no underlying file")
 	}
 
-	return p.UnderlyingFile.WriteJsonSection(p.EncDataMap, "sec/encData")
+	err := p.UnderlyingFile.WriteJsonSection(p.EncDataMap, "sec/encData")
+
+	if err != nil {
+		return err
+	}
+
+	var encSections []string
+
+	for k, v := range p.DataMap {
+		if v.Enc {
+			encSections = append(encSections, k)
+		}
+	}
+
+	return p.UnderlyingFile.WriteJsonSection(encSections, "sec/encSections")
 }
 
 func (p PemEncryptedSource) New(u *iblfile.File) (iblfile.AEDataSource, error) {
@@ -231,7 +253,7 @@ func (p PemEncryptedSource) New(u *iblfile.File) (iblfile.AEDataSource, error) {
 		HashMethod:     p.HashMethod,
 		EncKey:         p.EncKey,
 		EncDataMap:     make(map[string]*iblfile.PemEncryptionData),
-		DataMap:        make(map[string]*bytes.Buffer),
+		DataMap:        make(map[string]*iblfile.AEDData),
 	}, nil
 }
 
@@ -345,12 +367,44 @@ func (p PemEncryptedSource) Load(sections map[string]*bytes.Buffer, meta *iblfil
 		privKeyPem = decPriv
 	}
 
+	dataMap := make(map[string]*iblfile.AEDData)
+
+	encSections, ok := sections["sec/encSections"]
+
+	if !ok {
+		for k, v := range sections {
+			dataMap[k] = &iblfile.AEDData{
+				Enc:   true, // Assume all data is encrypted
+				Bytes: v,
+			}
+		}
+	} else {
+		var encSecs []string
+
+		err = json.NewDecoder(encSections).Decode(&encSecs)
+
+		if err != nil {
+			return nil, err
+		}
+
+		dataMap := make(map[string]*iblfile.AEDData)
+
+		for k, v := range sections {
+			enc := slices.Contains(encSecs, k)
+
+			dataMap[k] = &iblfile.AEDData{
+				Enc:   enc,
+				Bytes: v,
+			}
+		}
+	}
+
 	return PemEncryptedSource{
 		PrivateKey: privKeyPem,
 		HashMethod: HashMethod(hashMethod),
 		PublicKey:  pubKey.Bytes(),
 		EncDataMap: meta.PemEncryptionData,
 		EncKey:     p.EncKey,
-		DataMap:    sections,
+		DataMap:    dataMap,
 	}, nil
 }

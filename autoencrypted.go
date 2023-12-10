@@ -7,6 +7,11 @@ import (
 	"io"
 )
 
+type AEDData struct {
+	Bytes *bytes.Buffer
+	Enc   bool
+}
+
 // Autoencrypted files can be encypted in many ways
 //
 // This defines an interface for all of them
@@ -15,13 +20,15 @@ type AEDataSource interface {
 	ID() string
 
 	// Returns a map of sections
-	Sections() map[string]*bytes.Buffer
+	Sections() map[string]*AEDData
 
 	// Gets a section from the source
-	Get(name string) (*bytes.Buffer, error)
+	Get(name string) (*AEDData, error)
 
 	// Writes a section to the source
-	Write(name string, buf *bytes.Buffer) error
+	//
+	// If plaintext is true, then this is a *suggestion* that the data should not be encrypted
+	Write(name string, buf *bytes.Buffer, plaintext bool) error
 
 	// Any extra code when writing output
 	WriteOutput() error
@@ -56,7 +63,7 @@ func (f *AutoEncryptedFile) Size() int {
 
 		for _, v := range sections {
 			if v != nil {
-				size += v.Len()
+				size += v.Bytes.Len()
 			}
 		}
 
@@ -65,7 +72,7 @@ func (f *AutoEncryptedFile) Size() int {
 	return f.UnderlyingFile.Size()
 }
 
-func (f *AutoEncryptedFile) Get(name string) (*bytes.Buffer, error) {
+func (f *AutoEncryptedFile) Get(name string) (*AEDData, error) {
 	return f.Source.Get(name)
 }
 
@@ -79,12 +86,15 @@ func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 		return err
 	}
 
-	return f.Source.Write(name, buf)
+	return f.WriteSection(buf, name)
 }
 
 // Adds a section to a file
 func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
-	return f.Source.Write(name, buf)
+	if name == "meta" {
+		return f.Source.Write(name, buf, true)
+	}
+	return f.Source.Write(name, buf, false)
 }
 
 func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
@@ -92,7 +102,7 @@ func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
 	sections := f.Source.Sections()
 
 	if _, ok := sections["sec/sourceType"]; !ok {
-		err := f.Source.Write("sec/sourceType", bytes.NewBuffer([]byte(f.Source.ID())))
+		err := f.Source.Write("sec/sourceType", bytes.NewBuffer([]byte(f.Source.ID())), true)
 
 		if err != nil {
 			return err
