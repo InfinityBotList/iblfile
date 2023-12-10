@@ -48,7 +48,7 @@ type AES256Source struct {
 }
 
 func (p AES256Source) ID() string {
-	return "noencryption"
+	return "aes256"
 }
 
 func (p AES256Source) Sections() map[string]*iblfile.AEDData {
