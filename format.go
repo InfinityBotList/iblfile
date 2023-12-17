@@ -58,6 +58,9 @@ type Meta struct {
 
 	// Type of the file
 	Type string `json:"t"`
+
+	// Extra metadata attributes
+	ExtraMetadata map[string]string `json:"m,omitempty"`
 }
 
 type SourceParsed struct {
