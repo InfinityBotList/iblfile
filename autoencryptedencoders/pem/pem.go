@@ -383,8 +383,6 @@ func (p PemEncryptedSource) Load(sections map[string]*bytes.Buffer, meta *iblfil
 			return nil, err
 		}
 
-		dataMap := make(map[string]*iblfile.AEDData)
-
 		for k, v := range sections {
 			enc := slices.Contains(encSecs, k)
 
