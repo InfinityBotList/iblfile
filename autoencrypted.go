@@ -1,93 +1,273 @@
+// Version 2 of autoencrypted files
 package iblfile
 
 import (
+	"archive/tar"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 )
 
-type AEDData struct {
-	Bytes *bytes.Buffer
-	Enc   bool
+var (
+	AutoEncryptedFileMagic        = []byte("iblaef")
+	AutoEncryptedFileChecksumSize = 32 // sha256
+	AutoEncryptedFileIDSize       = 16
+)
+
+func AutoEncryptedMetadataSize() int {
+	return len(AutoEncryptedFileMagic) + AutoEncryptedFileChecksumSize + AutoEncryptedFileIDSize
 }
 
 // Autoencrypted files can be encypted in many ways
 //
 // This defines an interface for all of them
-type AEDataSource interface {
-	// Returns the identity of the source
-	ID() string
-
-	// Returns a map of sections
-	Sections() map[string]*AEDData
-
-	// Gets a section from the source
-	Get(name string) (*AEDData, error)
-
-	// Writes a section to the source
+type AutoEncryptor interface {
+	// Returns the identifier of the source, must be unique
 	//
-	// If plaintext is true, then this is a *suggestion* that the data should not be encrypted
-	Write(name string, buf *bytes.Buffer, plaintext bool) error
-
-	// Any extra code when writing output
-	WriteOutput() error
-
-	// Creates a new source
-	New(u *File) (AEDataSource, error)
-
-	// Loads a source
-	Load(sections map[string]*bytes.Buffer, meta *Meta) (AEDataSource, error)
+	// Max size: 8 ASCII characters (8 bytes)
+	ID() string
+	// Encrypts a byte slice
+	Encrypt([]byte) ([]byte, error)
+	// Decrypts a byte slice
+	Decrypt([]byte) ([]byte, error) // Decrypts a byte slice
 }
 
-type AutoEncryptedFile struct {
-	UnderlyingFile *File
+var AutoEncryptorRegistry = make(map[string]AutoEncryptor)
 
-	// Source of the file
-	Source AEDataSource
+func RegisterAutoEncryptor(src AutoEncryptor) {
+	id := []byte(src.ID())
 
-	// Raw section data (only present on open)
-	rawSections map[string]*bytes.Buffer
-
-	// Cached metadata
-	cachedMeta *Meta
-}
-
-// Returns the cached metadata of the file
-func (f *AutoEncryptedFile) CachedMeta() *Meta {
-	return f.cachedMeta
-}
-
-// Returns the raw sections of the file, only present on open
-func (f *AutoEncryptedFile) RawSections() map[string]*bytes.Buffer {
-	return f.rawSections
-}
-
-// Returns the total size of the file
-func (f *AutoEncryptedFile) Size() int {
-	if f.UnderlyingFile == nil {
-		var size int
-
-		sections := f.Source.Sections()
-
-		for _, v := range sections {
-			if v != nil {
-				size += v.Bytes.Len()
-			}
-		}
-
-		return size
+	if len(id) != AutoEncryptedFileIDSize {
+		panic(fmt.Errorf("invalid id size for %v: %v", src.ID(), len(id)))
 	}
-	return f.UnderlyingFile.Size()
+
+	AutoEncryptorRegistry[string(id)] = src
 }
 
-// Returns a section based on name
-func (f *AutoEncryptedFile) Get(name string) (*AEDData, error) {
-	return f.Source.Get(name)
+// Represents an autoencrypted file block
+type AutoEncryptedFileBlock struct {
+	// Magic bytes
+	Magic []byte
+	// Checksum
+	Checksum []byte
+	// Encryptor
+	Encryptor []byte
+	// Data
+	Data []byte
+}
+
+// Validates a block to ensure that it is a valid autoencrypted file block
+func (b *AutoEncryptedFileBlock) Validate() error {
+	if string(b.Magic) != string(AutoEncryptedFileMagic) {
+		return fmt.Errorf("invalid magic: %v", b.Magic)
+	}
+
+	// Calculate sha256 checksum of data
+	checksum := sha256.Sum256(b.Data)
+
+	if string(checksum[:]) != string(b.Checksum) {
+		return fmt.Errorf("invalid checksum: %v", b.Checksum)
+	}
+
+	return nil
+}
+
+// Decrypts a block into a byte slice
+func (b *AutoEncryptedFileBlock) Decrypt(src AutoEncryptor) ([]byte, error) {
+	if src.ID() != string(b.Encryptor) {
+		return nil, fmt.Errorf("invalid encryptor: %v", b.Encryptor)
+	}
+
+	return src.Decrypt(b.Data)
+}
+
+// Writes a block to a writer encrypting it with the src
+func (b *AutoEncryptedFileBlock) Write(src AutoEncryptor, w io.Writer) error {
+	_, err := w.Write(b.Magic)
+
+	if err != nil {
+		return err
+	}
+
+	if len(b.Magic) != len(AutoEncryptedFileMagic) {
+		return fmt.Errorf("magic is not the correct size")
+	}
+
+	_, err = w.Write(b.Checksum)
+
+	if err != nil {
+		return err
+	}
+
+	if len(b.Checksum) != AutoEncryptedFileChecksumSize {
+		return fmt.Errorf("checksum is not the correct size")
+	}
+
+	_, err = w.Write(b.Encryptor)
+
+	if err != nil {
+		return err
+	}
+
+	if len(b.Encryptor) != AutoEncryptedFileIDSize {
+		return fmt.Errorf("encryptor is not the correct size")
+	}
+
+	_, err = w.Write(b.Data)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func ParseAutoEncryptedFileBlock(block []byte) (*AutoEncryptedFileBlock, error) {
+	if len(block) < AutoEncryptedMetadataSize() {
+		return nil, fmt.Errorf("block is too small")
+	}
+
+	var currentPos int
+
+	// Magic
+	magic := block[currentPos : currentPos+len(AutoEncryptedFileMagic)]
+	currentPos += len(AutoEncryptedFileMagic)
+
+	// Checksum
+	checksum := block[currentPos : currentPos+AutoEncryptedFileChecksumSize]
+	currentPos += AutoEncryptedFileChecksumSize
+
+	// Encryptor
+	encryptor := block[currentPos : currentPos+AutoEncryptedFileIDSize]
+	currentPos += AutoEncryptedFileIDSize
+
+	// Data
+	data := block[currentPos:]
+
+	return &AutoEncryptedFileBlock{
+		Magic:     magic,
+		Checksum:  checksum,
+		Encryptor: encryptor,
+		Data:      data,
+	}, nil
+}
+
+func NewAutoEncryptedFileBlock(data []byte, src AutoEncryptor) (*AutoEncryptedFileBlock, error) {
+	checksum := sha256.Sum256(data)
+	encData, err := src.Encrypt(data)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &AutoEncryptedFileBlock{
+		Magic:     AutoEncryptedFileMagic,
+		Checksum:  checksum[:],
+		Encryptor: []byte(src.ID()),
+		Data:      encData,
+	}, nil
+}
+
+// A full file autoencrypted  file. This type stores all data as one single encrypted block rather than per-section blocks
+//
+// This is the first, and simplest+quickest autoencrypted () file
+type AutoEncryptedFile_FullFile struct {
+	src      AutoEncryptor
+	file     *File
+	sections map[string]*bytes.Buffer
+}
+
+func NewAutoEncryptedFile_FullFile(src AutoEncryptor) *AutoEncryptedFile_FullFile {
+	buf := bytes.NewBuffer([]byte{})
+	tarWriter := tar.NewWriter(buf)
+
+	return &AutoEncryptedFile_FullFile{
+		src: src,
+		file: &File{
+			buf:       buf,
+			tarWriter: tarWriter,
+		},
+	}
+}
+
+// OpenAutoEncryptedFile_FullFile opens a full file as a single autoencrypted  block
+func OpenAutoEncryptedFile_FullFile(r io.Reader, src AutoEncryptor) (*AutoEncryptedFile_FullFile, error) {
+	data, err := io.ReadAll(r)
+
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := ParseAutoEncryptedFileBlock(data)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if err := block.Validate(); err != nil {
+		return nil, fmt.Errorf("block is not valid: %v", err)
+	}
+
+	decryptedBlock, err := block.Decrypt(src)
+
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(decryptedBlock)
+	tarWriter := tar.NewWriter(buf)
+
+	return &AutoEncryptedFile_FullFile{
+		src: src,
+		file: &File{
+			buf:       buf,
+			tarWriter: tarWriter,
+		},
+	}, nil
+}
+
+// Returns all sections of the file
+func (f *AutoEncryptedFile_FullFile) Sections() (map[string]*bytes.Buffer, error) {
+	if f.sections != nil {
+		return f.sections, nil
+	}
+
+	if f.file.buf.Len() == 0 {
+		return map[string]*bytes.Buffer{}, nil
+	}
+
+	// Now, we have a decrypted tar file
+	files, err := RawDataParse(f.file.buf)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse raw data: %w", err)
+	}
+
+	f.sections = files
+	return files, nil
+}
+
+// Get a section from the file
+func (f *AutoEncryptedFile_FullFile) Get(name string) (*bytes.Buffer, error) {
+	sections, err := f.Sections()
+
+	if err != nil {
+		return nil, err
+	}
+
+	section, ok := sections[name]
+
+	if !ok {
+		return nil, fmt.Errorf("no section found for %s", name)
+	}
+
+	return section, nil
 }
 
 // Adds a section to a file with json file format
-func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
+func (f *AutoEncryptedFile_FullFile) WriteJsonSection(i any, name string) error {
 	buf := bytes.NewBuffer([]byte{})
 
 	err := json.NewEncoder(buf).Encode(i)
@@ -100,113 +280,182 @@ func (f *AutoEncryptedFile) WriteJsonSection(i any, name string) error {
 }
 
 // Adds a section to a file
-func (f *AutoEncryptedFile) WriteSection(buf *bytes.Buffer, name string) error {
-	if name == "meta" {
-		f.cachedMeta = nil // Delete the cached meta
-		return f.Source.Write(name, buf, true)
-	}
-	return f.Source.Write(name, buf, false)
-}
+func (f *AutoEncryptedFile_FullFile) WriteSection(buf *bytes.Buffer, name string) error {
+	var err error
 
-// Writes the output to writer w
-func (f *AutoEncryptedFile) WriteOutput(w io.Writer) error {
-	// First save source
-	sections := f.Source.Sections()
-
-	if _, ok := sections["sec/sourceType"]; !ok {
-		err := f.Source.Write("sec/sourceType", bytes.NewBuffer([]byte(f.Source.ID())), true)
+	if f.sections == nil {
+		f.sections, err = f.Sections()
 
 		if err != nil {
 			return err
 		}
 	}
 
-	err := f.Source.WriteOutput()
+	err = f.file.WriteSection(buf, name)
 
 	if err != nil {
 		return err
 	}
 
-	return f.UnderlyingFile.WriteOutput(w)
+	f.sections[name] = buf
+	return nil
 }
 
-// Clears the internal cache
-func (f *AutoEncryptedFile) ClearInternalCache() {
-	f.cachedMeta = nil
-}
+func (f *AutoEncryptedFile_FullFile) WriteOutput(w io.Writer) error {
+	dataBuf := bytes.NewBuffer([]byte{})
+	err := f.file.WriteOutput(dataBuf)
 
-// Returns the metadata of the file
-func (f *AutoEncryptedFile) Meta() *Meta {
-	if f.cachedMeta != nil {
-		return f.cachedMeta
+	if err != nil {
+		return err
 	}
 
-	m := &Meta{}
+	encData, err := f.src.Encrypt(dataBuf.Bytes())
 
-	sections := f.Source.Sections()
+	if err != nil {
+		return err
+	}
 
-	if v, ok := sections["meta"]; ok {
-		err := json.NewDecoder(v.Bytes).Decode(m)
+	checksum := sha256.Sum256(encData)
+
+	encBlock := AutoEncryptedFileBlock{
+		Magic:     AutoEncryptedFileMagic,
+		Checksum:  checksum[:],
+		Encryptor: []byte(f.src.ID()),
+		Data:      encData,
+	}
+
+	return encBlock.Write(f.src, w)
+}
+
+// Returns the size of the file
+func (f *AutoEncryptedFile_FullFile) Size() int {
+	return f.file.Size()
+}
+
+// The second type of autoencrypted file
+//
+// This one encrypts individual sections
+type AutoEncryptedFile_PerSection struct {
+	file *File
+
+	// Unline FullFile, this one stores sections as blocks
+	sections map[string]*AutoEncryptedFileBlock
+}
+
+func NewAutoEncryptedFile_PerSection() *AutoEncryptedFile_PerSection {
+	return &AutoEncryptedFile_PerSection{
+		file:     New(),
+		sections: make(map[string]*AutoEncryptedFileBlock),
+	}
+}
+
+// OpenAutoEncryptedFile_PerSection opens a per-section autoencrypted  file
+func OpenAutoEncryptedFile_PerSection(r io.Reader, src AutoEncryptor) (*AutoEncryptedFile_PerSection, error) {
+	data, err := io.ReadAll(r)
+
+	if err != nil {
+		return nil, err
+	}
+
+	buf := bytes.NewBuffer(data)
+
+	sections, err := readTarFile(buf)
+
+	if err != nil {
+		return nil, err
+	}
+
+	encSections := make(map[string]*AutoEncryptedFileBlock)
+
+	for k, v := range sections {
+		encSection, err := ParseAutoEncryptedFileBlock(v.Bytes())
 
 		if err != nil {
-			return nil
+			return nil, err
 		}
+
+		encSections[k] = encSection
 	}
 
-	f.cachedMeta = m
+	buf = bytes.NewBuffer(data)
+	tarWriter := tar.NewWriter(buf)
 
-	return m
-}
-
-// Creates a new 'auto encypted' key
-func NewAutoEncryptedFile(src AEDataSource) (*AutoEncryptedFile, error) {
-	f := New()
-
-	loadedSrc, err := src.New(f)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &AutoEncryptedFile{
-		UnderlyingFile: f,
-		Source:         loadedSrc,
+	return &AutoEncryptedFile_PerSection{
+		file: &File{
+			buf:       buf,
+			tarWriter: tarWriter,
+		},
+		sections: encSections,
 	}, nil
 }
 
-func OpenAutoEncryptedFile(r io.Reader, src AEDataSource) (*AutoEncryptedFile, error) {
-	sections, meta, err := ParseData(r)
+// Returns all sections of the file (raw and encrypted)
+func (f *AutoEncryptedFile_PerSection) RawSections() (map[string]*AutoEncryptedFileBlock, error) {
+	return f.sections, nil
+}
 
-	if err != nil {
-		return nil, err
-	}
-
-	st, ok := sections["sec/sourceType"]
+// Gets a section given its name and a src
+func (f *AutoEncryptedFile_PerSection) Get(name string, src AutoEncryptor) (*bytes.Buffer, error) {
+	section, ok := f.sections[name]
 
 	if !ok {
-		return nil, fmt.Errorf("no source type found")
+		return nil, fmt.Errorf("no section found for %s", name)
 	}
 
-	srcType := st.Bytes()
-
-	if srcType == nil {
-		return nil, fmt.Errorf("no source type found")
+	if err := section.Validate(); err != nil {
+		return nil, fmt.Errorf("section is not valid: %v", err)
 	}
 
-	if string(srcType) != src.ID() {
-		return nil, fmt.Errorf("source type mismatch: %s != %s", string(srcType), src.ID())
-	}
-
-	loadedSrc, err := src.Load(sections, meta)
+	decrypted, err := section.Decrypt(src)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &AutoEncryptedFile{
-		UnderlyingFile: nil,
-		Source:         loadedSrc,
-		cachedMeta:     meta,
-		rawSections:    sections,
-	}, nil
+	return bytes.NewBuffer(decrypted), nil
+}
+
+// Adds a section to a file with json file format
+func (f *AutoEncryptedFile_PerSection) WriteJsonSection(i any, name string, src AutoEncryptor) error {
+	buf := bytes.NewBuffer([]byte{})
+
+	err := json.NewEncoder(buf).Encode(i)
+
+	if err != nil {
+		return err
+	}
+
+	return f.WriteSection(buf, name, src)
+}
+
+// Adds a section to a file given a buf, a name and a src
+func (f *AutoEncryptedFile_PerSection) WriteSection(buf *bytes.Buffer, name string, src AutoEncryptor) error {
+	encData, err := src.Encrypt(buf.Bytes())
+
+	if err != nil {
+		return err
+	}
+
+	checksum := sha256.Sum256(encData)
+
+	encBlock := AutoEncryptedFileBlock{
+		Magic:     AutoEncryptedFileMagic,
+		Checksum:  checksum[:],
+		Encryptor: []byte(src.ID()),
+		Data:      encData,
+	}
+
+	encBuf := bytes.NewBuffer([]byte{})
+	err = encBlock.Write(src, encBuf)
+
+	if err != nil {
+		return err
+	}
+
+	f.sections[name] = &encBlock
+	return f.file.WriteSection(encBuf, name) // We write the encrypted buf to the file
+}
+
+func (f *AutoEncryptedFile_PerSection) WriteOutput(w io.Writer) error {
+	return f.file.WriteOutput(w)
 }

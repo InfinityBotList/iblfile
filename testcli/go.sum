@@ -1,2 +1,6 @@
 github.com/go-andiamo/splitter v1.2.5 h1:P3NovWMY2V14TJJSolXBvlOmGSZo3Uz+LtTl2bsV/eY=
 github.com/go-andiamo/splitter v1.2.5/go.mod h1:8WHU24t9hcMKU5FXDQb1hysSEC/GPuivIp0uKY1J8gw=
+github.com/infinitybotlist/eureka v0.5.0 h1:S4X6X4queBLjQn3Zeb9h6+83tHY5kNxnDGm5X7+QRp4=
+github.com/infinitybotlist/eureka v0.5.0/go.mod h1:XY/H8htZ4EQJwyfwnDrLuKg5M7DGoo6835ZJSKSswCg=
+github.com/infinitybotlist/iblfile v0.0.0-20240412110927-7d02b1ba186e h1:Scsa+LwybyD4DBhYc7jeSg/fwx93rCOvQjkSb64F4Nk=
+github.com/infinitybotlist/iblfile v0.0.0-20240412110927-7d02b1ba186e/go.mod h1:j214HiwMfNCQ/udfZR33O5zv2/FPdSKIEYkMIm7tOjc=

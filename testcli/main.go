@@ -8,9 +8,14 @@ import (
 
 	"github.com/go-andiamo/splitter"
 	"github.com/infinitybotlist/iblfile"
-	"github.com/infinitybotlist/iblfile/autoencryptedencoders/aes256"
-	"github.com/infinitybotlist/iblfile/autoencryptedencoders/noencryption"
+	"github.com/infinitybotlist/iblfile/encryptors/aes256"
+	"github.com/infinitybotlist/iblfile/encryptors/noencryption"
 )
+
+func init() {
+	iblfile.RegisterAutoEncryptor(noencryption.NoEncryptionSource{})
+	iblfile.RegisterAutoEncryptor(aes256.AES256Source{})
+}
 
 var ArgSplitter splitter.Splitter
 
@@ -39,27 +44,27 @@ func main() {
 		args := os.Args[1:]
 
 		if len(args) < 3 {
-			fmt.Println("Usage: testcli new <filename> [password (optional)] <key>=<value>")
+			fmt.Println("Usage: testcli new <filename> <fullfile/per-record> [password (optional)]")
 			os.Exit(1)
 		}
 
 		filename := args[1]
-
+		mode := args[2]
 		var password string
 
-		argsSplit, err := ArgSplitter.Split(args[2])
+		argsSplit, err := ArgSplitter.Split(args[3])
 
 		if err != nil {
-			fmt.Println("WARNING: Splitting args[2] failed: ", err.Error())
+			fmt.Println("WARNING: Splitting args[3] failed: ", err.Error())
 		}
 
 		if len(argsSplit) == 1 {
-			password = args[2]
+			password = args[3]
 		}
 
 		argMap := make(map[string]string)
 
-		for _, arg := range args[3:] {
+		for _, arg := range args[4:] {
 			fields, err := ArgSplitter.Split(arg)
 
 			if err != nil {
@@ -76,7 +81,7 @@ func main() {
 		fmt.Println("filename:", filename)
 		fmt.Println("password:", password)
 
-		var aeSource iblfile.AEDataSource
+		var aeSource iblfile.AutoEncryptor
 
 		if password == "" {
 			aeSource = noencryption.NoEncryptionSource{}
@@ -86,47 +91,84 @@ func main() {
 			}
 		}
 
-		f, err := iblfile.NewAutoEncryptedFile(aeSource)
+		if mode == "fullfile" {
+			f := iblfile.NewAutoEncryptedFile_FullFile(aeSource)
 
-		if err != nil {
-			panic("error creating auto encrypted file: " + err.Error())
-		}
+			for k, v := range argMap {
+				f.WriteSection(bytes.NewBuffer([]byte(v)), k)
+			}
 
-		for k, v := range argMap {
-			f.WriteSection(bytes.NewBuffer([]byte(v)), k)
-		}
+			metadata := iblfile.Meta{
+				CreatedAt:     time.Now(),
+				Protocol:      iblfile.Protocol,
+				Type:          "testcli.test",
+				ExtraMetadata: map[string]string{},
+			}
 
-		metadata := iblfile.Meta{
-			CreatedAt:     time.Now(),
-			Protocol:      iblfile.Protocol,
-			Type:          "testcli.test",
-			ExtraMetadata: map[string]string{},
-		}
+			ifmt, err := iblfile.GetFormat(metadata.Type)
 
-		ifmt, err := iblfile.GetFormat(metadata.Type)
+			if err != nil {
+				panic("error getting format: " + err.Error())
+			}
 
-		if err != nil {
-			panic("error getting format: " + err.Error())
-		}
+			metadata.FormatVersion = ifmt.Version
 
-		metadata.FormatVersion = ifmt.Version
+			err = f.WriteJsonSection(metadata, "meta")
 
-		err = f.WriteJsonSection(metadata, "meta")
+			if err != nil {
+				panic("error writing metadata: " + err.Error())
+			}
 
-		if err != nil {
-			panic("error writing metadata: " + err.Error())
-		}
+			newFile, err := os.Create(filename)
 
-		newFile, err := os.Create(filename)
+			if err != nil {
+				panic("error writing output: " + err.Error())
+			}
 
-		if err != nil {
-			panic("error writing output: " + err.Error())
-		}
+			err = f.WriteOutput(newFile)
 
-		err = f.WriteOutput(newFile)
+			if err != nil {
+				panic("error writing output: " + err.Error())
+			}
+		} else {
+			f := iblfile.NewAutoEncryptedFile_PerSection()
 
-		if err != nil {
-			panic("error writing output: " + err.Error())
+			for k, v := range argMap {
+				f.WriteSection(bytes.NewBuffer([]byte(v)), k, aeSource)
+			}
+
+			metadata := iblfile.Meta{
+				CreatedAt:     time.Now(),
+				Protocol:      iblfile.Protocol,
+				Type:          "testcli.test",
+				ExtraMetadata: map[string]string{},
+			}
+
+			ifmt, err := iblfile.GetFormat(metadata.Type)
+
+			if err != nil {
+				panic("error getting format: " + err.Error())
+			}
+
+			metadata.FormatVersion = ifmt.Version
+
+			err = f.WriteJsonSection(metadata, "meta", aeSource)
+
+			if err != nil {
+				panic("error writing metadata: " + err.Error())
+			}
+
+			newFile, err := os.Create(filename)
+
+			if err != nil {
+				panic("error writing output: " + err.Error())
+			}
+
+			err = f.WriteOutput(newFile)
+
+			if err != nil {
+				panic("error writing output: " + err.Error())
+			}
 		}
 	case "open":
 		args := os.Args[1:]
@@ -144,7 +186,10 @@ func main() {
 			password = args[2]
 		}
 
-		var aeSource iblfile.AEDataSource
+		fmt.Println("filename:", filename)
+		fmt.Println("password:", password)
+
+		var aeSource iblfile.AutoEncryptor
 
 		if password == "" {
 			aeSource = noencryption.NoEncryptionSource{}
@@ -160,13 +205,19 @@ func main() {
 			panic("error opening file: " + err.Error())
 		}
 
-		f, err := iblfile.OpenAutoEncryptedFile(r, aeSource)
+		f, err := iblfile.OpenAutoEncryptedFile_FullFile(r, aeSource)
 
 		if err != nil {
 			panic("error opening auto encrypted file: " + err.Error())
 		}
 
-		for key := range f.Source.Sections() {
+		sections, err := f.Sections()
+
+		if err != nil {
+			panic("error getting sections: " + err.Error())
+		}
+
+		for key := range sections {
 			data, err := f.Get(key)
 
 			if err != nil {
@@ -174,7 +225,7 @@ func main() {
 			}
 
 			fmt.Println("section:", key)
-			fmt.Println("data:", data.Bytes.String())
+			fmt.Println("data:", data.String())
 		}
 	}
 }
