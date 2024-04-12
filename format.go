@@ -9,19 +9,6 @@ import (
 	"time"
 )
 
-// Helper function to convert any type to a bytes buffer with json format
-func ToJson(i any) (*bytes.Buffer, error) {
-	buf := bytes.NewBuffer([]byte{})
-
-	err := json.NewEncoder(buf).Encode(i)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return buf, nil
-}
-
 type Meta struct {
 	CreatedAt time.Time `json:"c"`
 	Protocol  string    `json:"p"`
@@ -43,41 +30,32 @@ type SourceParsed struct {
 	Table string
 }
 
-type File struct {
+// Note that RawFile's are not meant to be directly used
+//
+// Using AutoEncryptedFiles is recommended as these also include SHA256 checksums
+// and encryption support
+type RawFile struct {
 	tarWriter *tar.Writer
 	buf       *bytes.Buffer
 }
 
-func New() *File {
+func New() *RawFile {
 	buf := bytes.NewBuffer([]byte{})
 	tarWriter := tar.NewWriter(buf)
 
-	return &File{
+	return &RawFile{
 		tarWriter: tarWriter,
 		buf:       buf,
 	}
 }
 
 // Returns the size of the file
-func (f *File) Size() int {
+func (f *RawFile) Size() int {
 	return f.buf.Len()
 }
 
-// Adds a section to a file with json file format
-func (f *File) WriteJsonSection(i any, name string) error {
-	buf := bytes.NewBuffer([]byte{})
-
-	err := json.NewEncoder(buf).Encode(i)
-
-	if err != nil {
-		return err
-	}
-
-	return f.WriteSection(buf, name)
-}
-
 // Adds a section to a file
-func (f *File) WriteSection(buf *bytes.Buffer, name string) error {
+func (f *RawFile) WriteSection(buf *bytes.Buffer, name string) error {
 	err := f.tarWriter.WriteHeader(&tar.Header{
 		Name: name,
 		Mode: 0600,
@@ -97,7 +75,7 @@ func (f *File) WriteSection(buf *bytes.Buffer, name string) error {
 	return nil
 }
 
-func (f *File) WriteOutput(w io.Writer) error {
+func (f *RawFile) WriteOutput(w io.Writer) error {
 	// Close tar file
 	f.tarWriter.Close()
 
@@ -111,7 +89,7 @@ func (f *File) WriteOutput(w io.Writer) error {
 	return nil
 }
 
-func readTarFile(tarBuf io.Reader) (map[string]*bytes.Buffer, error) {
+func ReadTarFile(tarBuf io.Reader) (map[string]*bytes.Buffer, error) {
 	// Extract tar file to map of buffers
 	tarReader := tar.NewReader(tarBuf)
 
@@ -145,55 +123,34 @@ func readTarFile(tarBuf io.Reader) (map[string]*bytes.Buffer, error) {
 	return files, nil
 }
 
-func RawDataParse(data io.Reader) (map[string]*bytes.Buffer, error) {
-	// Get size of decompressed file
-	files, err := readTarFile(data)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to read tar file: %w", err)
-	}
-
-	if len(files) == 0 {
-		return nil, fmt.Errorf("failed to read tar file")
-	}
-
-	return files, nil
-}
-
 // Parses a file to a map of buffers and the metadata
-func ParseData(data io.Reader) (map[string]*bytes.Buffer, *Meta, error) {
-	files, err := RawDataParse(data)
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse file: %w", err)
-	}
-
+func ParseMetadata(files map[string]*bytes.Buffer) (*Meta, error) {
 	if meta, ok := files["meta"]; ok {
 		var metadata Meta
 
-		err = json.NewDecoder(meta).Decode(&metadata)
+		err := json.NewDecoder(meta).Decode(&metadata)
 
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to unmarshal meta: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal meta: %w", err)
 		}
 
 		if metadata.Protocol != Protocol {
-			return nil, nil, fmt.Errorf("invalid protocol: %s", metadata.Protocol)
+			return nil, fmt.Errorf("invalid protocol: %s", metadata.Protocol)
 		}
 
 		f, err := GetFormat(metadata.Type)
 
 		if f == nil {
-			return nil, nil, fmt.Errorf("unknown format: %s %s", metadata.Type, err)
+			return nil, fmt.Errorf("unknown format: %s %s", metadata.Type, err)
 		}
 
 		if metadata.FormatVersion != f.Version {
-			return nil, nil, fmt.Errorf("this %s uses format version %s, but this version of the tool only supports version %s", metadata.Type, metadata.FormatVersion, f.Version)
+			return nil, fmt.Errorf("this %s uses format version %s, but this version of the tool only supports version %s", metadata.Type, metadata.FormatVersion, f.Version)
 		}
 
-		return files, &metadata, nil
+		return &metadata, nil
 	} else {
-		return files, nil, fmt.Errorf("no metadata present")
+		return nil, fmt.Errorf("no metadata present")
 	}
 }
 

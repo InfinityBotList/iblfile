@@ -35,7 +35,7 @@ func main() {
 	}
 
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: testcli <new/open> [args]")
+		fmt.Println("Usage: testcli <new/open/deduce> [args]")
 		os.Exit(1)
 	}
 
@@ -227,5 +227,32 @@ func main() {
 			fmt.Println("section:", key)
 			fmt.Println("data:", data.String())
 		}
+	case "deduce":
+		args := os.Args[1:]
+
+		if len(args) < 2 {
+			fmt.Println("Usage: testcli deduce <filename>")
+			os.Exit(1)
+		}
+
+		filename := args[1]
+
+		fmt.Println("filename:", filename)
+
+		r, err := os.Open(filename)
+
+		if err != nil {
+			panic("error opening file: " + err.Error())
+		}
+
+		deduced, err := iblfile.DeduceType(r, false)
+
+		if err != nil {
+			panic("error deducing file type: " + err.Error())
+		}
+
+		fmt.Println("deduced type:", deduced.Type.String())
+		fmt.Println("deduced sections:", iblfile.MapKeys(deduced.Sections))
+		fmt.Println("deduced errors:", deduced.ParseErrors)
 	}
 }

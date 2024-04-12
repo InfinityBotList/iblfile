@@ -175,7 +175,7 @@ func NewAutoEncryptedFileBlock(data []byte, src AutoEncryptor) (*AutoEncryptedFi
 // This is the first, and simplest+quickest autoencrypted () file
 type AutoEncryptedFile_FullFile struct {
 	src      AutoEncryptor
-	file     *File
+	file     *RawFile
 	sections map[string]*bytes.Buffer
 }
 
@@ -185,7 +185,7 @@ func NewAutoEncryptedFile_FullFile(src AutoEncryptor) *AutoEncryptedFile_FullFil
 
 	return &AutoEncryptedFile_FullFile{
 		src: src,
-		file: &File{
+		file: &RawFile{
 			buf:       buf,
 			tarWriter: tarWriter,
 		},
@@ -221,7 +221,7 @@ func OpenAutoEncryptedFile_FullFile(r io.Reader, src AutoEncryptor) (*AutoEncryp
 
 	return &AutoEncryptedFile_FullFile{
 		src: src,
-		file: &File{
+		file: &RawFile{
 			buf:       buf,
 			tarWriter: tarWriter,
 		},
@@ -239,7 +239,7 @@ func (f *AutoEncryptedFile_FullFile) Sections() (map[string]*bytes.Buffer, error
 	}
 
 	// Now, we have a decrypted tar file
-	files, err := RawDataParse(f.file.buf)
+	files, err := ReadTarFile(f.file.buf)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse raw data: %w", err)
@@ -336,7 +336,7 @@ func (f *AutoEncryptedFile_FullFile) Size() int {
 //
 // This one encrypts individual sections
 type AutoEncryptedFile_PerSection struct {
-	file *File
+	file *RawFile
 
 	// Unline FullFile, this one stores sections as blocks
 	sections map[string]*AutoEncryptedFileBlock
@@ -359,7 +359,7 @@ func OpenAutoEncryptedFile_PerSection(r io.Reader, src AutoEncryptor) (*AutoEncr
 
 	buf := bytes.NewBuffer(data)
 
-	sections, err := readTarFile(buf)
+	sections, err := ReadTarFile(buf)
 
 	if err != nil {
 		return nil, err
@@ -381,7 +381,7 @@ func OpenAutoEncryptedFile_PerSection(r io.Reader, src AutoEncryptor) (*AutoEncr
 	tarWriter := tar.NewWriter(buf)
 
 	return &AutoEncryptedFile_PerSection{
-		file: &File{
+		file: &RawFile{
 			buf:       buf,
 			tarWriter: tarWriter,
 		},
