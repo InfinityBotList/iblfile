@@ -94,7 +94,8 @@ func DeduceType(r io.Reader, shortcut bool) (*DeducedTypeInfo, error) {
 			return nil, fmt.Errorf("failed to deduce file type: (tar: %w) (lzw LSB: %w)", err, err2)
 		}
 
-		sections, err := ReadTarFile(lzwCompressor)
+		// Read sections, we need to make a new compressor though as we have already read the first section
+		sections, err := ReadTarFile(lzw.NewReader(bytes.NewBuffer(inpBytes), lzw.LSB, 8))
 
 		if err != nil {
 			return &DeducedTypeInfo{Type: DeducedTypeLegacyFileLsw, ParseErrors: []error{err}}, nil
