@@ -46,8 +46,21 @@ type AutoEncryptedFile struct {
 	// Source of the file
 	Source AEDataSource
 
+	// Raw section data (only present on open)
+	rawSections map[string]*bytes.Buffer
+
 	// Cached metadata
 	cachedMeta *Meta
+}
+
+// Returns the cached metadata of the file
+func (f *AutoEncryptedFile) CachedMeta() *Meta {
+	return f.cachedMeta
+}
+
+// Returns the raw sections of the file, only present on open
+func (f *AutoEncryptedFile) RawSections() map[string]*bytes.Buffer {
+	return f.rawSections
 }
 
 // Returns the total size of the file
@@ -194,5 +207,6 @@ func OpenAutoEncryptedFile(r io.Reader, src AEDataSource) (*AutoEncryptedFile, e
 		UnderlyingFile: nil,
 		Source:         loadedSrc,
 		cachedMeta:     meta,
+		rawSections:    sections,
 	}, nil
 }

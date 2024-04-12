@@ -234,8 +234,6 @@ func (p AES256Source) Load(sections map[string]*bytes.Buffer, meta *iblfile.Meta
 			return nil, err
 		}
 
-		dataMap := make(map[string]*iblfile.AEDData)
-
 		for k, v := range sections {
 			enc := slices.Contains(encSecs, k)
 
