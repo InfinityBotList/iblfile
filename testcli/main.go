@@ -205,6 +205,33 @@ func main() {
 			panic("error opening file: " + err.Error())
 		}
 
+		// Read the first AutoEncryptedMetadataSize into a buffer
+		// This is the metadata section
+		buf := make([]byte, iblfile.AutoEncryptedMetadataSize())
+		_, err = r.Read(buf)
+
+		if err != nil {
+			panic("error reading metadata: " + err.Error())
+		}
+
+		// This metadata will be 'corrupt', but we just need the encryptor
+		meta, err := iblfile.ParseAutoEncryptedFileBlock(buf)
+
+		if err != nil {
+			panic("error parsing metadata: " + err.Error())
+		}
+
+		if string(meta.Encryptor) != aeSource.ID() {
+			panic("error: invalid encryptor, need " + aeSource.ID() + " got " + string(meta.Encryptor))
+		}
+
+		// Seek back to the start of the file
+		_, err = r.Seek(0, 0)
+
+		if err != nil {
+			panic("error seeking back to start of file: " + err.Error())
+		}
+
 		f, err := iblfile.OpenAutoEncryptedFile_FullFile(r, aeSource)
 
 		if err != nil {
