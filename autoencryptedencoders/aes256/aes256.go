@@ -180,7 +180,7 @@ func (p AES256Source) Load(sections map[string]*bytes.Buffer, meta *iblfile.Meta
 		return nil, fmt.Errorf("no encryption key")
 	}
 
-	hashMethodStr, ok := sections["sec/encKeyhashMethod"]
+	hashMethodStr, ok := sections["sec/encKeyHashMethod"]
 
 	if !ok {
 		return nil, fmt.Errorf("no hash method found")

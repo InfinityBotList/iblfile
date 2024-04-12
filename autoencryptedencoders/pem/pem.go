@@ -310,7 +310,7 @@ func (p PemEncryptedSource) Load(sections map[string]*bytes.Buffer, meta *iblfil
 	} else {
 		pkp := privKey.Bytes()
 
-		hashMethodStr, ok := sections["sec/encKeyhashMethod"]
+		hashMethodStr, ok := sections["sec/encKeyHashMethod"]
 
 		if !ok {
 			return nil, fmt.Errorf("no hash method found")
