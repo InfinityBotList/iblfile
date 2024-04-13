@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-andiamo/splitter"
 	"github.com/infinitybotlist/iblfile"
 	"github.com/infinitybotlist/iblfile/encryptors/aes256"
 	"github.com/infinitybotlist/iblfile/encryptors/noencryption"
+	"github.com/infinitybotlist/iblfile/encryptors/pem"
 )
 
 func init() {
@@ -85,6 +87,16 @@ func main() {
 
 		if password == "" {
 			aeSource = noencryption.NoEncryptionSource{}
+		} else if strings.HasSuffix(password, ".pem") {
+			f, err := os.ReadFile(password)
+
+			if err != nil {
+				panic("error opening pem file: " + err.Error())
+			}
+
+			aeSource = pem.PemEncryptedSource{
+				PublicKey: f,
+			}
 		} else {
 			aeSource = aes256.AES256Source{
 				EncryptionKey: password,
@@ -193,6 +205,16 @@ func main() {
 
 		if password == "" {
 			aeSource = noencryption.NoEncryptionSource{}
+		} else if strings.HasSuffix(password, ".pem") {
+			f, err := os.ReadFile(password)
+
+			if err != nil {
+				panic("error opening pem file: " + err.Error())
+			}
+
+			aeSource = pem.PemEncryptedSource{
+				PrivateKey: f,
+			}
 		} else {
 			aeSource = aes256.AES256Source{
 				EncryptionKey: password,

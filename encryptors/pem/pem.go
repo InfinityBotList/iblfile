@@ -88,7 +88,7 @@ func (p PemEncryptedSource) Encrypt(b []byte) ([]byte, error) {
 	// Key length is 8 bits long
 	// Each key is 32 bytes long
 	// Encrypted data is the rest of the data
-	res := make([]byte, 0, 1+len(keys)*32+len(encrypted))
+	res := make([]byte, 0, 1+len(keys)*256+128+len(encrypted))
 	res = append(res, p.KeyCount)
 
 	for _, key := range keys {
@@ -96,7 +96,6 @@ func (p PemEncryptedSource) Encrypt(b []byte) ([]byte, error) {
 	}
 
 	res = append(res, encNonce...)
-
 	res = append(res, encrypted...)
 
 	return res, nil
@@ -114,25 +113,23 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 	keyLength := b[0]
 	b = b[1:]
 
-	fmt.Println("Key length:", keyLength)
-
 	// Keep getting keys till keylength
 	var keys [][]byte
 
 	var i uint8
 	for i = 0; i < keyLength; i++ {
-		key := b[0:32]
-		b = b[32:]
-		fmt.Println("Key:", key, "len:", len(crypto.RandString(32)))
+		key := b[0:256]
+		b = b[256:]
 		keys = append(keys, key)
 	}
 
 	encNonce := b[0:128]
 	b = b[128:]
 
-	fmt.Println("Encrypted nonce:", encNonce)
+	var decrPass = []byte{}
 
-	var decrPass = []byte(encNonce)
+	// Append encNonce
+	decrPass = append(decrPass, encNonce...)
 
 	for _, key := range keys {
 		hash := sha512.New()
