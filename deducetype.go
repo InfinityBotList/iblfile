@@ -46,7 +46,7 @@ func (d DeducedType) String() string {
 // Returns info from deducing the type of an ibl file
 type DeducedTypeInfo struct {
 	Type        DeducedType
-	Sections    map[string]*bytes.Buffer // Only present on DeducedTypeTar* to allow further processing
+	Sections    map[string]*bytes.Buffer // Only present on DeducedTypeTar* + Lsw to allow further processing
 	ParseErrors []error
 }
 
@@ -149,11 +149,13 @@ func DeduceType(r io.Reader, shortcut bool) (*DeducedTypeInfo, error) {
 		}, nil
 	}
 
+	metaBytes := meta.Bytes()
+
 	var data struct {
 		Protocol string `json:"p"`
 	}
 
-	err = json.NewDecoder(meta).Decode(&data)
+	err = json.NewDecoder(bytes.NewBuffer(metaBytes)).Decode(&data)
 
 	if err != nil {
 		return &DeducedTypeInfo{
