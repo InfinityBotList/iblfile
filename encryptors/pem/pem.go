@@ -84,7 +84,7 @@ func (p PemEncryptedSource) Encrypt(b []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to encrypt data: %s", err)
 	}
 
-	// Format is <key length><keys of 32 chars long><encrypted data>
+	// Format is <key length><keys of 32 chars long><nonce><encrypted data>
 	// Key length is 8 bits long
 	// Each key is 32 bytes long
 	// Encrypted data is the rest of the data
@@ -94,6 +94,8 @@ func (p PemEncryptedSource) Encrypt(b []byte) ([]byte, error) {
 	for _, key := range keys {
 		res = append(res, key...)
 	}
+
+	res = append(res, encNonce...)
 
 	res = append(res, encrypted...)
 
@@ -126,6 +128,11 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 		fmt.Println("Key:", key, "len:", len(crypto.RandString(32)))
 		keys = append(keys, key)
 	}
+
+	encNonce := b[0:128]
+	b = b[128:]
+
+	fmt.Println("Encrypted nonce:", encNonce)
 
 	for _, key := range keys {
 		hash := sha512.New()
