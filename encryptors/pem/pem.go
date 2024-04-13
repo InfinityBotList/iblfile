@@ -122,7 +122,7 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 	var i uint8
 	for i = 0; i < keyLength; i++ {
 		key := b[0:32]
-		b = b[32:]
+		b = b[33:]
 		keys = append(keys, key)
 	}
 
