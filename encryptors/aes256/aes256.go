@@ -4,9 +4,10 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
 	"io"
+
+	"golang.org/x/crypto/argon2"
 )
 
 type HashMethod int
@@ -25,6 +26,9 @@ type AES256Source struct {
 	// Hashed encryption key
 	hashedKey []byte
 
+	// The salt to use for PBKDF2
+	salt []byte
+
 	// Cipher
 	cipher cipher.AEAD
 }
@@ -35,8 +39,17 @@ func (p AES256Source) ID() string {
 
 func (p *AES256Source) init() error {
 	if p.hashedKey == nil {
-		hk := sha256.Sum256([]byte(p.EncryptionKey))
-		p.hashedKey = hk[:]
+		// Create 8 byte salt
+		if p.salt == nil {
+			p.salt = make([]byte, 8)
+			if _, err := io.ReadFull(rand.Reader, p.salt); err != nil {
+				return err
+			}
+		}
+
+		// Hash using argon2
+		// 32 bytes
+		p.hashedKey = argon2.IDKey([]byte(p.EncryptionKey), p.salt, 1, 64*1024, 4, 32)
 	}
 
 	if p.cipher == nil {
@@ -67,10 +80,23 @@ func (p AES256Source) Encrypt(b []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return p.cipher.Seal(nonce, nonce, b, nil), nil
+	data := p.cipher.Seal(nonce, nonce, b, nil)
+
+	// Prepend salt
+	data = append(p.salt, data...)
+
+	return data, nil
 }
 
 func (p AES256Source) Decrypt(b []byte) ([]byte, error) {
+	// Extract salt
+	if len(b) < 8 {
+		return nil, fmt.Errorf("invalid data")
+	}
+
+	p.salt = b[:8]
+	b = b[8:]
+
 	p.init()
 
 	nonceSize := p.cipher.NonceSize()
