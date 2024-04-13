@@ -170,6 +170,36 @@ func NewAutoEncryptedFileBlock(data []byte, src AutoEncryptor) (*AutoEncryptedFi
 	}, nil
 }
 
+// QuickBlockParser reads the first AutoEncryptedMetadataSize into a buffer and parses it
+//
+// Note that the block returned by this is *not* valid and is only meant for quick parsing of the encryptor
+func QuickBlockParser(r io.ReadSeeker) (*AutoEncryptedFileBlock, error) {
+	// Read the first AutoEncryptedMetadataSize into a buffer
+	// This is the metadata section
+	buf := make([]byte, AutoEncryptedMetadataSize())
+	_, err := r.Read(buf)
+
+	if err != nil {
+		return nil, fmt.Errorf("error reading metadata: %w", err)
+	}
+
+	// This metadata will be 'corrupt', but we just need the encryptor
+	meta, err := ParseAutoEncryptedFileBlock(buf)
+
+	if err != nil {
+		return nil, fmt.Errorf("error parsing metadata: %w", err)
+	}
+
+	// Seek back to start
+	_, err = r.Seek(0, 0)
+
+	if err != nil {
+		return nil, fmt.Errorf("error seeking back to start of file: %w", err)
+	}
+
+	return meta, nil
+}
+
 // A full file autoencrypted  file. This type stores all data as one single encrypted block rather than per-section blocks
 //
 // This is the first, and simplest+quickest autoencrypted () file
