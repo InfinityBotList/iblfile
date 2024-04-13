@@ -46,7 +46,7 @@ func (d DeducedType) String() string {
 // Returns info from deducing the type of an ibl file
 type DeducedTypeInfo struct {
 	Type        DeducedType
-	Sections    map[string]*bytes.Buffer // Only present on DeducedTypeTar* + Lsw to allow further processing
+	Sections    map[string]*bytes.Buffer // Not present on autoencrypted files
 	ParseErrors []error
 }
 
