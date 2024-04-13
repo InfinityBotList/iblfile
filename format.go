@@ -113,8 +113,8 @@ func ReadTarFile(tarBuf io.Reader) (map[string]*bytes.Buffer, error) {
 	return files, nil
 }
 
-// Parses a file to a map of buffers and the metadata
-func ParseMetadata(files map[string]*bytes.Buffer) (*Meta, error) {
+// Load metadata loads the metadata
+func LoadMetadata(files map[string]*bytes.Buffer) (*Meta, error) {
 	if meta, ok := files["meta"]; ok {
 		var metadata Meta
 
@@ -124,24 +124,35 @@ func ParseMetadata(files map[string]*bytes.Buffer) (*Meta, error) {
 			return nil, fmt.Errorf("failed to unmarshal meta: %w", err)
 		}
 
-		if metadata.Protocol != Protocol {
-			return nil, fmt.Errorf("invalid protocol: %s", metadata.Protocol)
-		}
-
-		f, err := GetFormat(metadata.Type)
-
-		if f == nil {
-			return nil, fmt.Errorf("unknown format: %s %s", metadata.Type, err)
-		}
-
-		if metadata.FormatVersion != f.Version {
-			return nil, fmt.Errorf("this %s uses format version %s, but this version of the tool only supports version %s", metadata.Type, metadata.FormatVersion, f.Version)
-		}
-
 		return &metadata, nil
 	} else {
 		return nil, fmt.Errorf("no metadata present")
 	}
+}
+
+// Parses a file's metadata and checks protocol
+func ParseMetadata(files map[string]*bytes.Buffer) (*Meta, error) {
+	meta, err := LoadMetadata(files)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if meta.Protocol != Protocol {
+		return nil, fmt.Errorf("invalid protocol: %s", meta.Protocol)
+	}
+
+	f, err := GetFormat(meta.Type)
+
+	if f == nil {
+		return nil, fmt.Errorf("unknown format: %s %s", meta.Type, err)
+	}
+
+	if meta.FormatVersion != f.Version {
+		return nil, fmt.Errorf("this %s uses format version %s, but this iblfile version only supports version %s", meta.Type, meta.FormatVersion, f.Version)
+	}
+
+	return meta, nil
 }
 
 func MapKeys[T any](m map[string]T) []string {
