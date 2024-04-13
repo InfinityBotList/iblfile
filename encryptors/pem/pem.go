@@ -123,7 +123,7 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 	for i = 0; i < keyLength; i++ {
 		key := b[0:32]
 		b = b[32:]
-		fmt.Println("Key:", key, "len:", crypto.RandString(32))
+		fmt.Println("Key:", key, "len:", len(crypto.RandString(32)))
 		keys = append(keys, key)
 	}
 
