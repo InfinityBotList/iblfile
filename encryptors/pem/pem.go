@@ -110,6 +110,9 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 	}
 
 	keyLength := b[0]
+	b = b[1:]
+
+	fmt.Println("Key length:", keyLength)
 
 	var decrPass = make([]byte, 0, 32*keyLength)
 
@@ -118,7 +121,7 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 
 	var i uint8
 	for i = 0; i < keyLength; i++ {
-		key := b[1+i*32 : 1+(i+1)*32]
+		key := b[i*32 : (i+1)*32]
 		keys = append(keys, key)
 	}
 
