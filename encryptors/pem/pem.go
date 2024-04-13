@@ -116,8 +116,6 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 
 	fmt.Println("Key length:", keyLength)
 
-	var decrPass = make([]byte, 0, 32*keyLength)
-
 	// Keep getting keys till keylength
 	var keys [][]byte
 
@@ -133,6 +131,8 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 	b = b[128:]
 
 	fmt.Println("Encrypted nonce:", encNonce)
+
+	var decrPass = []byte(encNonce)
 
 	for _, key := range keys {
 		hash := sha512.New()
