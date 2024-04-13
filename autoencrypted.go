@@ -343,8 +343,11 @@ type AutoEncryptedFile_PerSection struct {
 }
 
 func NewAutoEncryptedFile_PerSection() *AutoEncryptedFile_PerSection {
+	buf := bytes.NewBuffer([]byte{})
+	tarWriter := tar.NewWriter(buf)
+
 	return &AutoEncryptedFile_PerSection{
-		file:     New(),
+		file:     &RawFile{buf: buf, tarWriter: tarWriter},
 		sections: make(map[string]*AutoEncryptedFileBlock),
 	}
 }

@@ -39,16 +39,6 @@ type RawFile struct {
 	buf       *bytes.Buffer
 }
 
-func New() *RawFile {
-	buf := bytes.NewBuffer([]byte{})
-	tarWriter := tar.NewWriter(buf)
-
-	return &RawFile{
-		tarWriter: tarWriter,
-		buf:       buf,
-	}
-}
-
 // Returns the size of the file
 func (f *RawFile) Size() int {
 	return f.buf.Len()
