@@ -121,7 +121,8 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 
 	var i uint8
 	for i = 0; i < keyLength; i++ {
-		key := b[i*32 : (i+1)*32]
+		key := b[0:31]
+		b = b[32:]
 		keys = append(keys, key)
 	}
 
@@ -153,5 +154,5 @@ func (p PemEncryptedSource) Decrypt(b []byte) ([]byte, error) {
 
 	return aes256.AES256Source{
 		EncryptionKey: string(decrPass),
-	}.Decrypt(b[1+32*keyLength:])
+	}.Decrypt(b)
 }
