@@ -1,4 +1,4 @@
-package iblfile
+package v1
 
 import (
 	"archive/tar"
