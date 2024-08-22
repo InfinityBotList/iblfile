@@ -73,7 +73,11 @@ func (p *AES256Source) init() error {
 }
 
 func (p AES256Source) Encrypt(b []byte) ([]byte, error) {
-	p.init()
+	err := p.init()
+
+	if err != nil {
+		return nil, err
+	}
 
 	nonce := make([]byte, p.cipher.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
@@ -97,7 +101,11 @@ func (p AES256Source) Decrypt(b []byte) ([]byte, error) {
 	p.salt = b[:8]
 	b = b[8:]
 
-	p.init()
+	err := p.init()
+
+	if err != nil {
+		return nil, err
+	}
 
 	nonceSize := p.cipher.NonceSize()
 	if len(b) < nonceSize {
