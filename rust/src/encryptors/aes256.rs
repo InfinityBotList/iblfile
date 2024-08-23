@@ -40,7 +40,6 @@ impl AES256Source {
         if self.hashed_key.is_none() {
             // Create 8 byte salt
             if self.salt.is_none() {
-                println!("Creating new salt");
                 let mut salt = [0u8; 8];
                 rand::thread_rng().fill_bytes(&mut salt);
                 self.salt = Some(salt);
