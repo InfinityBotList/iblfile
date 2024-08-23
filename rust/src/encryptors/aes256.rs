@@ -20,23 +20,27 @@ pub struct AES256Source {
 }
 
 impl AES256Source {
-    pub fn new(encryption_key: String) -> Result<Self, Error> {
-        let mut src = AES256Source {
+    pub fn new(encryption_key: String) -> Self {
+        AES256Source {
             encryption_key,
             hashed_key: None,
             salt: None,
             cipher: None,
-        };
+        }
+    }
 
-        src.init()?;
-
-        Ok(src)
+    /// Reset the encryption state
+    pub fn reset(&mut self) {
+        self.hashed_key = None;
+        self.salt = None;
+        self.cipher = None;
     }
 
     fn init(&mut self) -> Result<(), Error> {
         if self.hashed_key.is_none() {
             // Create 8 byte salt
             if self.salt.is_none() {
+                println!("Creating new salt");
                 let mut salt = [0u8; 8];
                 rand::thread_rng().fill_bytes(&mut salt);
                 self.salt = Some(salt);
@@ -94,7 +98,7 @@ impl AutoEncryptor for AES256Source {
             .map_err(|e| format!("Failed to encrypt: {:?}", e))?;
 
         // Format must be <salt><nonce><ciphertext>
-        let mut result = Vec::with_capacity(12 + 8 + encrypted.len());
+        let mut result = Vec::with_capacity(8 + 12 + encrypted.len());
         result.extend_from_slice(&self.salt.unwrap());
         result.extend_from_slice(nonce.as_slice());
         result.append(&mut encrypted);

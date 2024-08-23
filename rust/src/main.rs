@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 //let f = std::fs::read(password)?;
                 //Box::new(pem::PemEncryptedSource::new(f, None))
             } else {
-                Box::new(aes256::AES256Source::new(password.trim().to_string()).unwrap())
+                Box::new(aes256::AES256Source::new(password.trim().to_string()))
             };
 
             let mut arg_map = HashMap::new();
@@ -145,7 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 //let f = std::fs::read(password)?;
                 //Box::new(pem::PemEncryptedSource::new(None, Some(f)))
             } else {
-                Box::new(aes256::AES256Source::new(password.to_string()).unwrap())
+                Box::new(aes256::AES256Source::new(password.trim().to_string()))
             };
 
             let mut r = File::open(filename)?;

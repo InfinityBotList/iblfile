@@ -16,4 +16,3 @@ An ``iblfile`` is a simple standard format for storing data in a file with optio
 
 - Deduce is not supported
 - PEM encryptor is not supported
-- AES decryption does not work yet.
