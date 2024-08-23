@@ -6,24 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"time"
 )
-
-type Meta struct {
-	CreatedAt time.Time `json:"c"`
-	Protocol  string    `json:"p"`
-
-	// Format version
-	//
-	// This can be used to create breaking changes to a file type without changing the entire protocol
-	FormatVersion string `json:"v,omitempty"`
-
-	// Type of the file
-	Type string `json:"t"`
-
-	// Extra metadata attributes
-	ExtraMetadata map[string]string `json:"m,omitempty"`
-}
 
 type SourceParsed struct {
 	Data  map[string]any

@@ -82,8 +82,8 @@ func (b *AutoEncryptedFileBlock) Decrypt(src AutoEncryptor) ([]byte, error) {
 	return src.Decrypt(b.Data)
 }
 
-// Writes a block to a writer encrypting it with the src
-func (b *AutoEncryptedFileBlock) Write(src AutoEncryptor, w io.Writer) error {
+// Writes a block to a writer with checksum and magic
+func (b *AutoEncryptedFileBlock) Write(w io.Writer) error {
 	_, err := w.Write(b.Magic)
 
 	if err != nil {
@@ -199,7 +199,7 @@ func QuickBlockParser(r io.ReadSeeker) (*AutoEncryptedFileBlock, error) {
 	return meta, nil
 }
 
-// A full file autoencrypted  file. This type stores all data as one single encrypted block rather than per-section blocks
+// A full file autoencrypted file. This type stores all data as one single encrypted block rather than per-section blocks
 //
 // This is the first, and simplest+quickest autoencrypted () file
 type AutoEncryptedFile_FullFile struct {
@@ -353,7 +353,7 @@ func (f *AutoEncryptedFile_FullFile) WriteOutput(w io.Writer) error {
 		Data:      encData,
 	}
 
-	return encBlock.Write(f.src, w)
+	return encBlock.Write(w)
 }
 
 // Returns the size of the file
@@ -382,7 +382,7 @@ func NewAutoEncryptedFile_PerSection() *AutoEncryptedFile_PerSection {
 }
 
 // OpenAutoEncryptedFile_PerSection opens a per-section autoencrypted  file
-func OpenAutoEncryptedFile_PerSection(r io.Reader, src AutoEncryptor) (*AutoEncryptedFile_PerSection, error) {
+func OpenAutoEncryptedFile_PerSection(r io.Reader) (*AutoEncryptedFile_PerSection, error) {
 	data, err := io.ReadAll(r)
 
 	if err != nil {
@@ -478,7 +478,7 @@ func (f *AutoEncryptedFile_PerSection) WriteSection(buf *bytes.Buffer, name stri
 	}
 
 	encBuf := bytes.NewBuffer([]byte{})
-	err = encBlock.Write(src, encBuf)
+	err = encBlock.Write(encBuf)
 
 	if err != nil {
 		return err

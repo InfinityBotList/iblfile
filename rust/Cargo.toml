@@ -1,0 +1,27 @@
+[package]
+name = "iblfile"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+tar = "0.4"
+dashmap = { version = "5", features = ["serde", "inline", "rayon"] }
+sha2 = "0.10"
+argon2 = { version = "0.5" }
+blake2 = { version = "0.10" }
+rand = "0.8"
+aes-gcm = "0.10"
+clap = { version = "4", optional = true }
+
+[features]
+default = ["build-binary"]
+build-binary = ["dep:clap"]
+
+[[bin]]
+name = "iblfile"
+features = ["build-binary"]

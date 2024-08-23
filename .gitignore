@@ -1,6 +1,2 @@
-.DS_Store
-testcli/testcli
-testcli/testfilev2
-
-testcli/enc.pem 
-testcli/dec.pem 
+go/testcli/testcli
+rust/target
