@@ -1,4 +1,4 @@
-module github.com/infinitybotlist/iblfile
+module github.com/infinitybotlist/iblfile/go
 
 go 1.21
 
